@@ -2,10 +2,11 @@
   "$schema": "https://www.raycast.com/schemas/extension.json",
   "name": "globalping",
   "title": "Globalping",
-  "description": "Run network tests globally using Globalping.",
+  "description": "Run ping, traceroute, MTR, DNS and HTTP tests from 3700+ probes distributed worldwide. Powered by the Globalping network.",
   "icon": "extension-icon.png",
   "author": "valentin_denis",
   "owner": "globalping",
+  "access": "public",
   "platforms": [
     "macOS",
     "Windows"
@@ -14,14 +15,171 @@
     "Developer Tools"
   ],
   "license": "MIT",
+  "preferences": [
+    {
+      "name": "apiToken",
+      "title": "API Token",
+      "description": "Optional — get a free token at dash.globalping.io to unlock 500 tests/hour and 500 probes/test (vs 250/50 without).",
+      "type": "password",
+      "required": false,
+      "placeholder": "your_api_token_here"
+    },
+    {
+      "name": "probeCount",
+      "title": "Default Probe Count",
+      "description": "Global number of probes to use across all Globalping commands.",
+      "type": "dropdown",
+      "required": true,
+      "default": "5",
+      "data": [
+        {
+          "title": "1 probe",
+          "value": "1"
+        },
+        {
+          "title": "3 probes",
+          "value": "3"
+        },
+        {
+          "title": "5 probes",
+          "value": "5"
+        },
+        {
+          "title": "10 probes",
+          "value": "10"
+        },
+        {
+          "title": "20 probes",
+          "value": "20"
+        },
+        {
+          "title": "50 probes",
+          "value": "50"
+        }
+      ]
+    }
+  ],
   "commands": [
     {
       "name": "ping",
       "title": "Ping",
-      "subtitle": "ping an IP or a domain via Globalping",
-      "description": "",
-      "mode": "view"
+      "subtitle": "Globalping",
+      "description": "Ping a target from multiple locations worldwide and compare latency results.",
+      "mode": "view",
+      "arguments": [
+        {
+          "name": "target",
+          "type": "text",
+          "placeholder": "e.g. google.com",
+          "required": false
+        },
+        {
+          "name": "from",
+          "type": "text",
+          "placeholder": "from: Paris, US, world",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "dns",
+      "title": "DNS",
+      "subtitle": "Globalping",
+      "description": "Resolve DNS records from multiple locations worldwide.",
+      "mode": "view",
+      "arguments": [
+        {
+          "name": "target",
+          "type": "text",
+          "placeholder": "e.g. google.com",
+          "required": false
+        },
+        {
+          "name": "from",
+          "type": "text",
+          "placeholder": "from: Paris, US, world",
+          "required": false
+        },
+        {
+          "name": "type",
+          "type": "text",
+          "placeholder": "A, AAAA, MX, TXT…",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "http",
+      "title": "HTTP",
+      "subtitle": "Globalping",
+      "description": "Perform HTTP requests from multiple locations worldwide.",
+      "mode": "view",
+      "arguments": [
+        {
+          "name": "target",
+          "type": "text",
+          "placeholder": "e.g. google.com",
+          "required": false
+        },
+        {
+          "name": "from",
+          "type": "text",
+          "placeholder": "from: Paris, US, world",
+          "required": false
+        },
+        {
+          "name": "method",
+          "type": "text",
+          "placeholder": "HEAD, GET, OPTIONS",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "mtr",
+      "title": "MTR",
+      "subtitle": "Globalping",
+      "description": "Run MTR tests combining traceroute and ping from multiple locations worldwide.",
+      "mode": "view",
+      "arguments": [
+        {
+          "name": "target",
+          "type": "text",
+          "placeholder": "e.g. google.com",
+          "required": false
+        },
+        {
+          "name": "from",
+          "type": "text",
+          "placeholder": "from: Paris, US, world",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "traceroute",
+      "title": "Traceroute",
+      "subtitle": "Globalping",
+      "description": "Run traceroute tests from multiple locations worldwide.",
+      "mode": "view",
+      "arguments": [
+        {
+          "name": "target",
+          "type": "text",
+          "placeholder": "e.g. google.com",
+          "required": false
+        },
+        {
+          "name": "from",
+          "type": "text",
+          "placeholder": "from: Paris, US, world",
+          "required": false
+        }
+      ]
     }
+  ],
+  "allowedNetworkHosts": [
+    "api.globalping.io"
   ],
   "dependencies": {
     "@raycast/api": "^1.104.8",

@@ -1,13 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { List, ActionPanel, Action, Icon, showToast, Toast, LaunchProps } from "@raycast/api";
-import { getProbeResultKeys, getShareUrl, type ProbeResult, type PingResult } from "./api/globalping";
-import {
-  formatProbeLabel,
-  formatProbeListTitle,
-  formatProbeSubtitle,
-  getLatencyIcon,
-  formatResultsAsMarkdownTable,
-} from "./utils/formatters";
+import { getProbeResultKeys, getShareUrl, type ProbeResult, type TracerouteResult } from "./api/globalping";
+import { formatProbeLabel, formatProbeListTitle, formatTracerouteResultAsMarkdown } from "./utils/formatters";
 import { getProbeLimitPreference } from "./utils/preferences";
 import { saveQuicklink } from "./utils/storage";
 import { useLocations } from "./hooks/useLocations";
@@ -18,57 +12,23 @@ interface Arguments {
   from: string;
 }
 
-const PING_PACKET_COUNT = 5;
-
 // Detail view for one probe
 
-function ProbeDetail({ probeResult }: { probeResult: ProbeResult }) {
-  const result = probeResult.result as PingResult;
-  const probe = probeResult.probe;
-  const label = formatProbeLabel(probe);
-  const receivedCount = result.stats?.rcv ?? result.timings?.length ?? 0;
-  const transmittedCount = result.stats?.total ?? result.timings?.length ?? 0;
-  const samples = result.timings?.slice(0, PING_PACKET_COUNT) ?? [];
-
-  return (
-    <List.Item.Detail
-      metadata={
-        result.stats ? (
-          <List.Item.Detail.Metadata>
-            <List.Item.Detail.Metadata.Label title="Location" text={label} />
-            <List.Item.Detail.Metadata.Label title="Network" text={formatProbeSubtitle(probe)} />
-            {result.resolvedAddress && <List.Item.Detail.Metadata.Label title="IP" text={result.resolvedAddress} />}
-            {result.resolvedHostname && result.resolvedHostname !== result.resolvedAddress && (
-              <List.Item.Detail.Metadata.Label title="Hostname" text={result.resolvedHostname} />
-            )}
-            <List.Item.Detail.Metadata.Separator />
-            <List.Item.Detail.Metadata.Label title="Avg latency" text={`${result.stats.avg} ms`} />
-            <List.Item.Detail.Metadata.Label title="Min latency" text={`${result.stats.min} ms`} />
-            <List.Item.Detail.Metadata.Label title="Max latency" text={`${result.stats.max} ms`} />
-            <List.Item.Detail.Metadata.Label title="Packet loss" text={`${result.stats.loss}%`} />
-            <List.Item.Detail.Metadata.Label title="Packets" text={`${receivedCount}/${transmittedCount}`} />
-            {samples.length > 0 && <List.Item.Detail.Metadata.Separator />}
-            {samples.map((sample, index) => (
-              <List.Item.Detail.Metadata.Label
-                key={`${sample.ttl}-${sample.rtt}-${index}`}
-                title={`Ping ${index + 1}`}
-                text={`${sample.rtt} ms  TTL ${sample.ttl}`}
-              />
-            ))}
-          </List.Item.Detail.Metadata>
-        ) : undefined
-      }
-    />
-  );
+function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target: string }) {
+  const result = probeResult.result as TracerouteResult;
+  const label = formatProbeLabel(probeResult.probe);
+  return <List.Item.Detail markdown={formatTracerouteResultAsMarkdown(target, label, result)} />;
 }
 
 // Main command
 
 export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
-  return <PingCommand initialTarget={props.arguments.target ?? ""} initialFrom={props.arguments.from?.trim() || ""} />;
+  return (
+    <TracerouteCommand initialTarget={props.arguments.target ?? ""} initialFrom={props.arguments.from?.trim() || ""} />
+  );
 }
 
-function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: string; initialFrom?: string }) {
+function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: string; initialFrom?: string }) {
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);
   const defaultProbeLimit = getProbeLimitPreference();
@@ -100,28 +60,20 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
       return;
     }
     await runTest(
-      {
-        type: "ping",
-        target: t.trim(),
-        locations: [{ magic: f }],
-        limit: defaultProbeLimit,
-        measurementOptions: { packets: PING_PACKET_COUNT },
-      },
-      `Pinging ${t}…`,
+      { type: "traceroute", target: t.trim(), locations: [{ magic: f }], limit: defaultProbeLimit },
+      `Traceroute to ${t}…`,
     );
   }
 
   // Actions
 
   function buildActions() {
-    const finishedResults = measurement?.results.filter((r) => (r.result as PingResult).status !== "in-progress") ?? [];
+    const finishedResults =
+      measurement?.results.filter((r) => (r.result as TracerouteResult).status !== "in-progress") ?? [];
 
-    const markdownTable = measurement
-      ? formatResultsAsMarkdownTable(
-          target,
-          finishedResults.map((r) => ({ probe: r.probe, ...(r.result as PingResult).stats })),
-        )
-      : "";
+    const rawOutputs = finishedResults
+      .map((r) => `### ${formatProbeLabel(r.probe)}\n\`\`\`\n${(r.result as TracerouteResult).rawOutput}\n\`\`\``)
+      .join("\n\n");
 
     return (
       <ActionPanel>
@@ -136,8 +88,8 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
         {measurement && (
           <ActionPanel.Section>
             <Action.CopyToClipboard
-              title="Copy Results as Markdown"
-              content={markdownTable}
+              title="Copy Results"
+              content={rawOutputs}
               shortcut={{ modifiers: ["cmd"], key: "c" }}
             />
             <Action.CopyToClipboard
@@ -150,7 +102,7 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
               icon={Icon.Star}
               shortcut={{ modifiers: ["cmd"], key: "s" }}
               onAction={async () => {
-                await saveQuicklink({ target, type: "ping", from: selectedFrom });
+                await saveQuicklink({ target, type: "traceroute", from: selectedFrom });
                 await showToast({ style: Toast.Style.Success, title: "Saved to Quicklinks" });
               }}
             />
@@ -164,12 +116,12 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
 
   const currentCount = measurement?.results.length ?? 0;
   const pendingCount = isRunning ? Math.max(0, probeLimit - currentCount) : 0;
-  const hasItems = currentCount > 0 || pendingCount > 0;
+  const hasResults = isRunning || currentCount > 0;
   const resultKeys = measurement ? getProbeResultKeys(measurement.results) : [];
 
   return (
     <List
-      isShowingDetail={hasItems}
+      isShowingDetail={hasResults}
       isLoading={isRunning}
       searchBarPlaceholder="Target (e.g. google.com)"
       searchText={target}
@@ -187,34 +139,26 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
       }
       actions={buildActions()}
     >
-      {!hasItems && (
+      {isRunning && currentCount === 0 && <List.EmptyView title="Contacting probes…" icon={Icon.Clock} />}
+      {!hasResults && (
         <List.EmptyView
-          title={target ? `Press ⌘R to ping ${target}` : "Enter a target to get started"}
+          title={target ? `Press ⌘R to traceroute ${target}` : "Enter a target to get started"}
           icon={Icon.Network}
         />
       )}
 
       {measurement?.results.map((probeResult, index) => {
-        const result = probeResult.result as PingResult;
+        const result = probeResult.result as TracerouteResult;
         const label = formatProbeListTitle(probeResult.probe);
         const isFinished = result.status !== "in-progress";
+        const hopCount = result.hops?.length ?? 0;
 
         return (
           <List.Item
             key={resultKeys[index]}
             title={label}
-            accessories={
-              isFinished && result.stats
-                ? [
-                    {
-                      icon: getLatencyIcon(result.stats.avg),
-                      text: `${result.stats.avg} ms`,
-                      tooltip: `Min: ${result.stats.min}ms / Max: ${result.stats.max}ms / Loss: ${result.stats.loss}%`,
-                    },
-                  ]
-                : [{ icon: Icon.Clock, text: "Running…" }]
-            }
-            detail={<ProbeDetail probeResult={probeResult} />}
+            accessories={isFinished ? [{ text: `${hopCount} hops` }] : [{ icon: Icon.Clock, text: "Running…" }]}
+            detail={<ProbeDetail probeResult={probeResult} target={target} />}
             actions={buildActions()}
           />
         );
