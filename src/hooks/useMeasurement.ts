@@ -57,10 +57,14 @@ export function useMeasurement() {
     }
 
     const nextOrder = new Set(nextKeys);
-    const mergedResults = [
-      ...next.results,
-      ...previous.results.filter((_, index) => !nextOrder.has(previousKeys[index])),
-    ];
+    const carryForwardResults =
+      next.status === "in-progress"
+        ? previous.results.filter((_, index) => !nextOrder.has(previousKeys[index]))
+        : previous.results.filter((result, index) => {
+            const previousKey = previousKeys[index];
+            return !nextOrder.has(previousKey) && result.result.status !== "in-progress";
+          });
+    const mergedResults = [...next.results, ...carryForwardResults];
     const mergedResultsKeys = getProbeResultKeys(mergedResults);
 
     return {

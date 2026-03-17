@@ -1,19 +1,11 @@
 import { LocalStorage } from "@raycast/api";
 
-export interface Quicklink {
-  id: string;
-  target: string;
-  type: string;
-  from: string;
-}
-
 export interface LocationStat {
   location: string;
   count: number;
   lastUsed: number;
 }
 
-const QUICKLINKS_KEY = "quicklinks";
 const LOCATION_STATS_KEY = "locationStats";
 
 function sanitizeLocation(value: string): string {
@@ -32,52 +24,6 @@ function sanitizeLocation(value: string): string {
     })
     .join("")
     .trim();
-}
-
-export async function getQuicklinks(): Promise<Quicklink[]> {
-  const raw = await LocalStorage.getItem<string>(QUICKLINKS_KEY);
-  if (!raw) return [];
-
-  try {
-    const parsed = JSON.parse(raw) as Quicklink[];
-    return parsed.filter(
-      (entry) =>
-        entry &&
-        typeof entry.id === "string" &&
-        typeof entry.target === "string" &&
-        typeof entry.type === "string" &&
-        typeof entry.from === "string",
-    );
-  } catch {
-    return [];
-  }
-}
-
-export async function saveQuicklink(quicklink: Omit<Quicklink, "id">): Promise<void> {
-  const normalizedQuicklink = {
-    ...quicklink,
-    target: quicklink.target.trim(),
-    from: sanitizeLocation(quicklink.from),
-  };
-
-  const existing = await getQuicklinks();
-  const alreadyExists = existing.some(
-    (q) =>
-      q.target === normalizedQuicklink.target &&
-      q.type === normalizedQuicklink.type &&
-      q.from.toLowerCase() === normalizedQuicklink.from.toLowerCase(),
-  );
-
-  if (alreadyExists) return;
-
-  const newEntry: Quicklink = { ...normalizedQuicklink, id: Date.now().toString() };
-  await LocalStorage.setItem(QUICKLINKS_KEY, JSON.stringify([...existing, newEntry]));
-}
-
-export async function removeQuicklink(id: string): Promise<void> {
-  const existing = await getQuicklinks();
-  const updated = existing.filter((q) => q.id !== id);
-  await LocalStorage.setItem(QUICKLINKS_KEY, JSON.stringify(updated));
 }
 
 export async function getLocationStats(): Promise<LocationStat[]> {

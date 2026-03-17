@@ -42,14 +42,14 @@ export interface PingResult {
   resolvedHostname?: string;
   timings: { ttl: number; rtt: number }[];
   stats: {
-    min: number;
-    max: number;
-    avg: number;
-    loss: number;
+    min: number | null;
+    max: number | null;
+    avg: number | null;
+    loss: number | null;
     total?: number;
     rcv?: number;
     drop?: number;
-  };
+  } | null;
 }
 
 export interface DnsAnswer {

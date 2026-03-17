@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { List, ActionPanel, Action, Icon, showToast, Toast, LaunchProps } from "@raycast/api";
+import { Action, ActionPanel, Color, Icon, Keyboard, LaunchProps, List, showToast, Toast } from "@raycast/api";
 import { getProbeResultKeys, getShareUrl, type ProbeResult, type HttpResult } from "./api/globalping";
 import {
+  getProbeFlagIcon,
   formatProbeLabel,
   formatProbeListTitle,
   formatProbeSubtitle,
@@ -10,7 +11,8 @@ import {
   formatHttpResultsAsMarkdownTable,
 } from "./utils/formatters";
 import { getProbeLimitPreference } from "./utils/preferences";
-import { saveQuicklink } from "./utils/storage";
+import { createHttpQuicklink } from "./utils/quicklinks";
+import { getRefreshActionHint } from "./utils/shortcuts";
 import { useLocations } from "./hooks/useLocations";
 import { useMeasurement } from "./hooks/useMeasurement";
 
@@ -20,53 +22,76 @@ interface Arguments {
   method: string;
 }
 
+type SupportedHttpMethod = "HEAD" | "GET";
+
+function normalizeHttpMethod(method?: string): SupportedHttpMethod {
+  return method?.toUpperCase() === "GET" ? "GET" : "HEAD";
+}
+
+function getHttpFailureMessage(result: HttpResult): string {
+  const rawOutput = result.rawOutput?.trim();
+  if (!rawOutput) {
+    return "The probe could not complete the HTTP request.";
+  }
+
+  return rawOutput;
+}
+
 // Detail view for one probe
 
 function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target: string }) {
   const result = probeResult.result as HttpResult;
   const probe = probeResult.probe;
   const label = formatProbeLabel(probe);
+  const failed = result.status === "failed";
+  const inProgress = result.status === "in-progress";
 
   return (
     <List.Item.Detail
       markdown={formatHttpResultAsMarkdown(target, label, result)}
       metadata={
-        result.statusCode != null ? (
-          <List.Item.Detail.Metadata>
-            <List.Item.Detail.Metadata.Label title="Location" text={label} />
-            <List.Item.Detail.Metadata.Label title="Network" text={formatProbeSubtitle(probe)} />
-            <List.Item.Detail.Metadata.Separator />
-            <List.Item.Detail.Metadata.Label
-              title="Status"
-              text={{ value: String(result.statusCode), color: getHttpStatusColor(result.statusCode) }}
-            />
-            <List.Item.Detail.Metadata.Separator />
-            <List.Item.Detail.Metadata.Label
-              title="Total"
-              text={result.timings?.total != null ? `${result.timings.total} ms` : "—"}
-            />
-            <List.Item.Detail.Metadata.Label
-              title="DNS"
-              text={result.timings?.dns != null ? `${result.timings.dns} ms` : "—"}
-            />
-            <List.Item.Detail.Metadata.Label
-              title="TCP"
-              text={result.timings?.tcp != null ? `${result.timings.tcp} ms` : "—"}
-            />
-            <List.Item.Detail.Metadata.Label
-              title="TLS"
-              text={result.timings?.tls != null ? `${result.timings.tls} ms` : "—"}
-            />
-            <List.Item.Detail.Metadata.Label
-              title="First byte"
-              text={result.timings?.firstByte != null ? `${result.timings.firstByte} ms` : "—"}
-            />
-            <List.Item.Detail.Metadata.Label
-              title="Download"
-              text={result.timings?.download != null ? `${result.timings.download} ms` : "—"}
-            />
-          </List.Item.Detail.Metadata>
-        ) : undefined
+        <List.Item.Detail.Metadata>
+          <List.Item.Detail.Metadata.Label title="Location" text={label} icon={getProbeFlagIcon(probe)} />
+          <List.Item.Detail.Metadata.Label title="Network" text={formatProbeSubtitle(probe)} />
+          <List.Item.Detail.Metadata.Separator />
+          {failed ? (
+            <List.Item.Detail.Metadata.Label title="Status" text={{ value: "Failed", color: Color.Red }} />
+          ) : inProgress ? (
+            <List.Item.Detail.Metadata.Label title="Status" text={{ value: "Running", color: Color.Yellow }} />
+          ) : (
+            <>
+              <List.Item.Detail.Metadata.Label
+                title="Status"
+                text={{ value: String(result.statusCode), color: getHttpStatusColor(result.statusCode) }}
+              />
+              <List.Item.Detail.Metadata.Separator />
+              <List.Item.Detail.Metadata.Label
+                title="Total"
+                text={result.timings?.total != null ? `${result.timings.total} ms` : "—"}
+              />
+              <List.Item.Detail.Metadata.Label
+                title="DNS"
+                text={result.timings?.dns != null ? `${result.timings.dns} ms` : "—"}
+              />
+              <List.Item.Detail.Metadata.Label
+                title="TCP"
+                text={result.timings?.tcp != null ? `${result.timings.tcp} ms` : "—"}
+              />
+              <List.Item.Detail.Metadata.Label
+                title="TLS"
+                text={result.timings?.tls != null ? `${result.timings.tls} ms` : "—"}
+              />
+              <List.Item.Detail.Metadata.Label
+                title="First byte"
+                text={result.timings?.firstByte != null ? `${result.timings.firstByte} ms` : "—"}
+              />
+              <List.Item.Detail.Metadata.Label
+                title="Download"
+                text={result.timings?.download != null ? `${result.timings.download} ms` : "—"}
+              />
+            </>
+          )}
+        </List.Item.Detail.Metadata>
       }
     />
   );
@@ -95,7 +120,7 @@ function HttpCommand({
 }) {
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);
-  const [method, setMethod] = useState((initialMethod || "HEAD").toUpperCase());
+  const [method, setMethod] = useState<SupportedHttpMethod>(normalizeHttpMethod(initialMethod));
   const defaultProbeLimit = getProbeLimitPreference();
   const { locationSections, preferredLocation, isLoading: isLocationsLoading } = useLocations();
   const { measurement, isRunning, runTest, probeLimit } = useMeasurement();
@@ -114,12 +139,12 @@ function HttpCommand({
     }
 
     hasAutoRunRef.current = true;
-    void handleRun(initialTarget, initialFrom || preferredLocation || "world", initialMethod || "HEAD");
+    void handleRun(initialTarget, initialFrom || preferredLocation || "world", normalizeHttpMethod(initialMethod));
   }, [initialTarget, initialFrom, initialMethod, preferredLocation, isLocationsLoading]);
 
   // Run test
 
-  async function handleRun(t: string, f: string, m: string) {
+  async function handleRun(t: string, f: string, m: SupportedHttpMethod) {
     if (!t.trim()) {
       await showToast({ style: Toast.Style.Failure, title: "Target is required" });
       return;
@@ -130,13 +155,13 @@ function HttpCommand({
         target: t.trim(),
         locations: [{ magic: f }],
         limit: defaultProbeLimit,
-        measurementOptions: { request: { method: m.toUpperCase() } },
+        measurementOptions: { request: { method: m } },
       },
-      `${m.toUpperCase()} ${t}…`,
+      `${m} ${t}…`,
     );
   }
 
-  async function applyHttpMethod(nextMethod: string) {
+  async function applyHttpMethod(nextMethod: SupportedHttpMethod) {
     setMethod(nextMethod);
     if (target.trim()) {
       await handleRun(target, selectedFrom, nextMethod);
@@ -169,46 +194,28 @@ function HttpCommand({
           <Action
             title="Run Test"
             icon={Icon.Play}
-            shortcut={{ modifiers: ["cmd"], key: "r" }}
+            shortcut={Keyboard.Shortcut.Common.Refresh}
             onAction={() => handleRun(target, selectedFrom, method)}
           />
         </ActionPanel.Section>
         <ActionPanel.Section title="HTTP Methods">
           <Action
-            title={method === "HEAD" ? "Use HEAD Current" : "Use HEAD"}
+            title="Use HEAD"
             icon={Icon.TextCursor}
-            shortcut={{ modifiers: ["cmd", "shift"], key: "h" }}
+            shortcut={{
+              macOS: { modifiers: ["cmd", "shift"], key: "h" },
+              Windows: { modifiers: ["ctrl", "shift"], key: "h" },
+            }}
             onAction={() => applyHttpMethod("HEAD")}
           />
           <Action
-            title={method === "GET" ? "Use GET Current" : "Use GET"}
+            title="Use GET"
             icon={Icon.TextCursor}
-            shortcut={{ modifiers: ["cmd", "shift"], key: "g" }}
+            shortcut={{
+              macOS: { modifiers: ["cmd", "shift"], key: "g" },
+              Windows: { modifiers: ["ctrl", "shift"], key: "g" },
+            }}
             onAction={() => applyHttpMethod("GET")}
-          />
-          <Action
-            title={method === "POST" ? "Use POST Current" : "Use POST"}
-            icon={Icon.TextCursor}
-            shortcut={{ modifiers: ["cmd", "shift"], key: "p" }}
-            onAction={() => applyHttpMethod("POST")}
-          />
-          <Action
-            title={method === "PUT" ? "Use PUT Current" : "Use PUT"}
-            icon={Icon.TextCursor}
-            shortcut={{ modifiers: ["cmd", "shift"], key: "u" }}
-            onAction={() => applyHttpMethod("PUT")}
-          />
-          <Action
-            title={method === "DELETE" ? "Use DELETE Current" : "Use DELETE"}
-            icon={Icon.TextCursor}
-            shortcut={{ modifiers: ["cmd", "shift"], key: "d" }}
-            onAction={() => applyHttpMethod("DELETE")}
-          />
-          <Action
-            title={method === "OPTIONS" ? "Use OPTIONS Current" : "Use OPTIONS"}
-            icon={Icon.TextCursor}
-            shortcut={{ modifiers: ["cmd", "shift"], key: "o" }}
-            onAction={() => applyHttpMethod("OPTIONS")}
           />
         </ActionPanel.Section>
         {measurement && (
@@ -216,21 +223,17 @@ function HttpCommand({
             <Action.CopyToClipboard
               title="Copy Results as Markdown"
               content={markdownContent}
-              shortcut={{ modifiers: ["cmd"], key: "c" }}
+              shortcut={Keyboard.Shortcut.Common.Copy}
             />
             <Action.CopyToClipboard
               title="Copy Share Link"
               content={getShareUrl(measurement.id)}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
             />
-            <Action
-              title="Save to Quicklinks"
+            <Action.CreateQuicklink
+              title="Create Raycast Quicklink"
               icon={Icon.Star}
-              shortcut={{ modifiers: ["cmd"], key: "s" }}
-              onAction={async () => {
-                await saveQuicklink({ target, type: "http", from: selectedFrom });
-                await showToast({ style: Toast.Style.Success, title: "Saved to Quicklinks" });
-              }}
+              quicklink={createHttpQuicklink(target, selectedFrom, method)}
+              shortcut={Keyboard.Shortcut.Common.Save}
             />
           </ActionPanel.Section>
         )}
@@ -268,7 +271,7 @@ function HttpCommand({
       {isRunning && currentCount === 0 && <List.EmptyView title="Contacting probes…" icon={Icon.Clock} />}
       {!hasResults && (
         <List.EmptyView
-          title={target ? `Press ⌘R to ${method} ${target}` : "Enter a URL to get started"}
+          title={target ? getRefreshActionHint(`${method} ${target}`) : "Enter a URL to get started"}
           icon={Icon.Globe}
         />
       )}
@@ -277,13 +280,15 @@ function HttpCommand({
         const result = probeResult.result as HttpResult;
         const label = formatProbeListTitle(probeResult.probe);
         const isFinished = result.status !== "in-progress";
+        const failed = result.status === "failed";
 
         return (
           <List.Item
             key={resultKeys[index]}
+            icon={getProbeFlagIcon(probeResult.probe)}
             title={label}
             accessories={
-              isFinished && result.statusCode != null
+              isFinished && !failed && result.statusCode != null
                 ? [
                     {
                       tag: { value: String(result.statusCode), color: getHttpStatusColor(result.statusCode) },
@@ -291,7 +296,15 @@ function HttpCommand({
                     },
                     ...(result.timings?.total != null ? [{ text: `${result.timings.total} ms` }] : []),
                   ]
-                : [{ icon: Icon.Clock, text: "Running…" }]
+                : failed
+                  ? [
+                      {
+                        icon: { source: Icon.XMarkCircle, tintColor: Color.Red },
+                        text: "Failed",
+                        tooltip: getHttpFailureMessage(result),
+                      },
+                    ]
+                  : [{ icon: Icon.Clock, text: "Running…" }]
             }
             detail={<ProbeDetail probeResult={probeResult} target={target} />}
             actions={buildActions()}

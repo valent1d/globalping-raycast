@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { List, ActionPanel, Action, Icon, showToast, Toast, LaunchProps } from "@raycast/api";
+import { Action, ActionPanel, Color, Icon, Keyboard, LaunchProps, List, showToast, Toast } from "@raycast/api";
 import { getProbeResultKeys, getShareUrl, type ProbeResult, type PingResult } from "./api/globalping";
 import {
+  getProbeFlagIcon,
   formatProbeLabel,
   formatProbeListTitle,
   formatProbeSubtitle,
@@ -9,7 +10,8 @@ import {
   formatResultsAsMarkdownTable,
 } from "./utils/formatters";
 import { getProbeLimitPreference } from "./utils/preferences";
-import { saveQuicklink } from "./utils/storage";
+import { createPingQuicklink } from "./utils/quicklinks";
+import { getRefreshActionHint } from "./utils/shortcuts";
 import { useLocations } from "./hooks/useLocations";
 import { useMeasurement } from "./hooks/useMeasurement";
 
@@ -19,6 +21,51 @@ interface Arguments {
 }
 
 const PING_PACKET_COUNT = 5;
+type SuccessfulPingStats = {
+  min: number;
+  max: number;
+  avg: number;
+  loss: number;
+  total?: number;
+  rcv?: number;
+  drop?: number;
+};
+
+function hasPingStats(result: PingResult): result is PingResult & { stats: SuccessfulPingStats } {
+  return (
+    result.stats != null &&
+    result.stats.avg != null &&
+    result.stats.min != null &&
+    result.stats.max != null &&
+    result.stats.loss != null
+  );
+}
+
+function getPingFailureMessage(result: PingResult): string {
+  const rawOutput = result.rawOutput?.trim();
+  if (!rawOutput) {
+    return "The probe could not complete the ping request.";
+  }
+
+  return rawOutput;
+}
+
+function formatPingProviderName(provider: string): string {
+  if (process.platform !== "win32") {
+    return provider;
+  }
+
+  return provider.replaceAll(" ", "-");
+}
+
+function formatPingIpAddress(ipAddress: string): string {
+  if (process.platform !== "win32") {
+    return ipAddress;
+  }
+
+  // Word joiner keeps the dots visually intact while changing Windows text layout behavior.
+  return ipAddress.replaceAll(".", ".\u2060");
+}
 
 // Detail view for one probe
 
@@ -26,37 +73,62 @@ function ProbeDetail({ probeResult }: { probeResult: ProbeResult }) {
   const result = probeResult.result as PingResult;
   const probe = probeResult.probe;
   const label = formatProbeLabel(probe);
-  const receivedCount = result.stats?.rcv ?? result.timings?.length ?? 0;
-  const transmittedCount = result.stats?.total ?? result.timings?.length ?? 0;
+  const stats = result.stats;
+  const receivedCount = stats?.rcv ?? result.timings?.length ?? 0;
+  const transmittedCount = stats?.total ?? result.timings?.length ?? 0;
   const samples = result.timings?.slice(0, PING_PACKET_COUNT) ?? [];
+  const failed = result.status === "failed";
+  const inProgress = result.status === "in-progress";
+  const successfulStats = result.stats as SuccessfulPingStats;
 
   return (
     <List.Item.Detail
+      markdown={
+        failed
+          ? `## Ping failed\n\n\`\`\`\n${getPingFailureMessage(result)}\n\`\`\``
+          : inProgress
+            ? "*Ping in progress…*"
+            : undefined
+      }
       metadata={
-        result.stats ? (
-          <List.Item.Detail.Metadata>
-            <List.Item.Detail.Metadata.Label title="Location" text={label} />
-            <List.Item.Detail.Metadata.Label title="Network" text={formatProbeSubtitle(probe)} />
-            {result.resolvedAddress && <List.Item.Detail.Metadata.Label title="IP" text={result.resolvedAddress} />}
-            {result.resolvedHostname && result.resolvedHostname !== result.resolvedAddress && (
-              <List.Item.Detail.Metadata.Label title="Hostname" text={result.resolvedHostname} />
-            )}
-            <List.Item.Detail.Metadata.Separator />
-            <List.Item.Detail.Metadata.Label title="Avg latency" text={`${result.stats.avg} ms`} />
-            <List.Item.Detail.Metadata.Label title="Min latency" text={`${result.stats.min} ms`} />
-            <List.Item.Detail.Metadata.Label title="Max latency" text={`${result.stats.max} ms`} />
-            <List.Item.Detail.Metadata.Label title="Packet loss" text={`${result.stats.loss}%`} />
-            <List.Item.Detail.Metadata.Label title="Packets" text={`${receivedCount}/${transmittedCount}`} />
-            {samples.length > 0 && <List.Item.Detail.Metadata.Separator />}
-            {samples.map((sample, index) => (
+        <List.Item.Detail.Metadata>
+          <List.Item.Detail.Metadata.Label title="Location" text={label} icon={getProbeFlagIcon(probe)} />
+          <List.Item.Detail.Metadata.Label title="Network" text={formatPingProviderName(formatProbeSubtitle(probe))} />
+          {result.resolvedAddress && <List.Item.Detail.Metadata.Label title="IP" text={formatPingIpAddress(result.resolvedAddress)} />}
+          {result.resolvedHostname && result.resolvedHostname !== result.resolvedAddress && (
+            <List.Item.Detail.Metadata.Label title="Hostname" text={result.resolvedHostname} />
+          )}
+          <List.Item.Detail.Metadata.Separator />
+          {failed ? (
+            <>
+              <List.Item.Detail.Metadata.Label title="Status" text={{ value: "Failed", color: Color.Red }} />
+              <List.Item.Detail.Metadata.Label title="Packets" text={`${receivedCount}/${transmittedCount}`} />
+            </>
+          ) : inProgress ? (
+            <>
+              <List.Item.Detail.Metadata.Label title="Status" text={{ value: "Running", color: Color.Yellow }} />
+              <List.Item.Detail.Metadata.Label title="Packets" text={`${receivedCount}/${transmittedCount}`} />
+            </>
+          ) : (
+            <>
+              <List.Item.Detail.Metadata.Label title="Avg latency" text={`${successfulStats.avg} ms`} />
+              <List.Item.Detail.Metadata.Label title="Min latency" text={`${successfulStats.min} ms`} />
+              <List.Item.Detail.Metadata.Label title="Max latency" text={`${successfulStats.max} ms`} />
+              <List.Item.Detail.Metadata.Label title="Packet loss" text={`${successfulStats.loss}%`} />
+              <List.Item.Detail.Metadata.Label title="Packets" text={`${receivedCount}/${transmittedCount}`} />
+            </>
+          )}
+          {!failed && !inProgress && samples.length > 0 && <List.Item.Detail.Metadata.Separator />}
+          {!failed &&
+            !inProgress &&
+            samples.map((sample, index) => (
               <List.Item.Detail.Metadata.Label
                 key={`${sample.ttl}-${sample.rtt}-${index}`}
                 title={`Ping ${index + 1}`}
                 text={`${sample.rtt} ms  TTL ${sample.ttl}`}
               />
             ))}
-          </List.Item.Detail.Metadata>
-        ) : undefined
+        </List.Item.Detail.Metadata>
       }
     />
   );
@@ -119,7 +191,17 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
     const markdownTable = measurement
       ? formatResultsAsMarkdownTable(
           target,
-          finishedResults.map((r) => ({ probe: r.probe, ...(r.result as PingResult).stats })),
+          finishedResults.map((r) => {
+            const pingResult = r.result as PingResult;
+
+            return {
+              probe: r.probe,
+              min: pingResult.stats?.min ?? undefined,
+              max: pingResult.stats?.max ?? undefined,
+              avg: pingResult.stats?.avg ?? undefined,
+              loss: pingResult.stats?.loss ?? undefined,
+            };
+          }),
         )
       : "";
 
@@ -129,7 +211,7 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
           <Action
             title="Run Test"
             icon={Icon.Play}
-            shortcut={{ modifiers: ["cmd"], key: "r" }}
+            shortcut={Keyboard.Shortcut.Common.Refresh}
             onAction={() => handleRun(target, selectedFrom)}
           />
         </ActionPanel.Section>
@@ -138,21 +220,17 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
             <Action.CopyToClipboard
               title="Copy Results as Markdown"
               content={markdownTable}
-              shortcut={{ modifiers: ["cmd"], key: "c" }}
+              shortcut={Keyboard.Shortcut.Common.Copy}
             />
             <Action.CopyToClipboard
               title="Copy Share Link"
               content={getShareUrl(measurement.id)}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
             />
-            <Action
-              title="Save to Quicklinks"
+            <Action.CreateQuicklink
+              title="Create Raycast Quicklink"
               icon={Icon.Star}
-              shortcut={{ modifiers: ["cmd"], key: "s" }}
-              onAction={async () => {
-                await saveQuicklink({ target, type: "ping", from: selectedFrom });
-                await showToast({ style: Toast.Style.Success, title: "Saved to Quicklinks" });
-              }}
+              quicklink={createPingQuicklink(target, selectedFrom)}
+              shortcut={Keyboard.Shortcut.Common.Save}
             />
           </ActionPanel.Section>
         )}
@@ -189,30 +267,42 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
     >
       {!hasItems && (
         <List.EmptyView
-          title={target ? `Press ⌘R to ping ${target}` : "Enter a target to get started"}
+          title={target ? getRefreshActionHint(`ping ${target}`) : "Enter a target to get started"}
           icon={Icon.Network}
         />
       )}
 
       {measurement?.results.map((probeResult, index) => {
         const result = probeResult.result as PingResult;
-        const label = formatProbeListTitle(probeResult.probe);
+        const label = formatPingProviderName(formatProbeListTitle(probeResult.probe));
         const isFinished = result.status !== "in-progress";
+        const successful = hasPingStats(result);
+        const failed = isFinished && !successful;
+        const successfulStats = result.stats as SuccessfulPingStats;
 
         return (
           <List.Item
             key={resultKeys[index]}
+            icon={getProbeFlagIcon(probeResult.probe)}
             title={label}
             accessories={
-              isFinished && result.stats
+              isFinished && successful
                 ? [
                     {
-                      icon: getLatencyIcon(result.stats.avg),
-                      text: `${result.stats.avg} ms`,
-                      tooltip: `Min: ${result.stats.min}ms / Max: ${result.stats.max}ms / Loss: ${result.stats.loss}%`,
+                      icon: getLatencyIcon(successfulStats.avg),
+                      text: `${successfulStats.avg} ms`,
+                      tooltip: `Min: ${successfulStats.min}ms / Max: ${successfulStats.max}ms / Loss: ${successfulStats.loss}%`,
                     },
                   ]
-                : [{ icon: Icon.Clock, text: "Running…" }]
+                : failed
+                  ? [
+                      {
+                        icon: { source: Icon.XMarkCircle, tintColor: Color.Red },
+                        text: "Failed",
+                        tooltip: getPingFailureMessage(result),
+                      },
+                    ]
+                  : [{ icon: Icon.Clock, text: "Running…" }]
             }
             detail={<ProbeDetail probeResult={probeResult} />}
             actions={buildActions()}

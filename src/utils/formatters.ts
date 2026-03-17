@@ -1,14 +1,27 @@
-import { Icon, Color } from "@raycast/api";
+import { Color, Icon, type Image } from "@raycast/api";
 import type { ProbeLocation, DnsAnswer, HttpResult, MtrResult, TracerouteResult } from "../api/globalping";
 
 // Probe labels
 
-function countryFlag(code: string): string {
-  return [...code.toUpperCase()].map((c) => String.fromCodePoint(0x1f1e6 + c.charCodeAt(0) - 65)).join("");
+export function getCountryFlagIcon(countryCode: string): Image.ImageLike {
+  const normalizedCode = countryCode.trim().toLowerCase();
+
+  if (!/^[a-z]{2}$/.test(normalizedCode)) {
+    return Icon.Globe;
+  }
+
+  return {
+    source: `https://flagcdn.com/24x18/${normalizedCode}.png`,
+    fallback: Icon.Globe,
+  };
+}
+
+export function getProbeFlagIcon(probe: ProbeLocation): Image.ImageLike {
+  return getCountryFlagIcon(probe.country);
 }
 
 export function formatProbeLabel(probe: ProbeLocation): string {
-  return `${countryFlag(probe.country)}  ${probe.city}, ${probe.country}`;
+  return `${probe.city}, ${probe.country}`;
 }
 
 export function formatProbeSubtitle(probe: ProbeLocation): string {
@@ -16,7 +29,7 @@ export function formatProbeSubtitle(probe: ProbeLocation): string {
 }
 
 export function formatProbeListTitle(probe: ProbeLocation): string {
-  return `${countryFlag(probe.country)}  ${probe.network}`;
+  return probe.network;
 }
 
 // Latency icon
@@ -109,6 +122,15 @@ export function formatDnsResultsAsMarkdownTable(
 // HTTP formatters
 
 export function formatHttpResultAsMarkdown(target: string, label: string, result: HttpResult): string {
+  if (result.status === "failed") {
+    const failureMessage = result.rawOutput?.trim() || "The probe could not complete the HTTP request.";
+    return `## HTTP failed: \`${target}\` — ${label}\n\n\`\`\`\n${failureMessage}\n\`\`\``;
+  }
+
+  if (result.status === "in-progress") {
+    return `## HTTP: \`${target}\` — ${label}\n\n*HTTP request in progress…*`;
+  }
+
   return `## HTTP: \`${target}\` — ${label}\n\n\`\`\`\n${result.rawOutput ?? ""}\n\`\`\``;
 }
 
@@ -143,19 +165,24 @@ export function formatTracerouteResultAsMarkdown(target: string, label: string, 
 
   let content = `## Traceroute: \`${target}\` — ${label}\n\n`;
 
+  if (result.status === "failed") {
+    const failureMessage = result.rawOutput?.trim() || "The probe could not complete the traceroute.";
+    return `${content}\`\`\`\n${failureMessage}\n\`\`\``;
+  }
+
   if (hops.length === 0) {
     return result.status === "in-progress"
       ? `${content}*Hop discovery in progress…*`
       : `${content}*No hop data available*`;
   }
 
-  content += "| Hop | Host / IP | RTT |\n|---:|---|---|\n";
+  content += "| Host / IP | RTT |\n|---|---|\n";
   content += hops
-    .map((hop, index) => {
+    .map((hop) => {
       const host = hop.resolvedHostname || "—";
       const ip = hop.resolvedAddress && hop.resolvedAddress !== host ? ` (${hop.resolvedAddress})` : "";
       const timings = hop.timings?.map((timing) => `${timing.rtt} ms`).join(" / ") || "—";
-      return `| ${index + 1} | ${host}${ip} | ${timings} |`;
+      return `| ${host}${ip} | ${timings} |`;
     })
     .join("\n");
 
@@ -167,15 +194,20 @@ export function formatMtrResultAsMarkdown(target: string, label: string, result:
 
   let content = `## MTR: \`${target}\` — ${label}\n\n`;
 
+  if (result.status === "failed") {
+    const failureMessage = result.rawOutput?.trim() || "The probe could not complete the MTR request.";
+    return `${content}\`\`\`\n${failureMessage}\n\`\`\``;
+  }
+
   if (hops.length === 0) {
     return result.status === "in-progress"
       ? `${content}*Hop discovery in progress…*`
       : `${content}*No hop data available*`;
   }
 
-  content += "| Hop | ASN | Avg | Loss | Min | Max | Jitter |\n|---:|---|---|---|---|---|---|\n";
+  content += "| ASN | Avg | Loss | Min | Max | Jitter |\n|---|---|---|---|---|---|\n";
   content += hops
-    .map((hop, index) => {
+    .map((hop) => {
       const asn = hop.asn?.[0] ?? "—";
       const avg = hop.stats?.avg != null ? `${hop.stats.avg} ms` : "—";
       const loss = hop.stats?.loss != null ? `${hop.stats.loss}%` : "—";
@@ -183,7 +215,7 @@ export function formatMtrResultAsMarkdown(target: string, label: string, result:
       const max = hop.stats?.max != null ? `${hop.stats.max} ms` : "—";
       const jitter = hop.stats?.jAvg != null ? `${hop.stats.jAvg} ms` : "—";
 
-      return `| ${index + 1} | ${asn} | ${avg} | ${loss} | ${min} | ${max} | ${jitter} |`;
+      return `| ${asn} | ${avg} | ${loss} | ${min} | ${max} | ${jitter} |`;
     })
     .join("\n");
 

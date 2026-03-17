@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { List, ActionPanel, Action, Icon, showToast, Toast, LaunchProps } from "@raycast/api";
+import { Action, ActionPanel, Color, Icon, Keyboard, LaunchProps, List, showToast, Toast } from "@raycast/api";
 import { getProbeResultKeys, getShareUrl, type ProbeResult, type DnsResult, type DnsAnswer } from "./api/globalping";
 import {
+  getProbeFlagIcon,
   formatProbeLabel,
   formatProbeListTitle,
   formatProbeSubtitle,
@@ -9,7 +10,8 @@ import {
   formatDnsResultsAsMarkdownTable,
 } from "./utils/formatters";
 import { getProbeLimitPreference } from "./utils/preferences";
-import { saveQuicklink } from "./utils/storage";
+import { createDnsQuicklink } from "./utils/quicklinks";
+import { getRefreshActionHint } from "./utils/shortcuts";
 import { useLocations } from "./hooks/useLocations";
 import { useMeasurement } from "./hooks/useMeasurement";
 
@@ -23,6 +25,32 @@ function formatDnsAnswersForClipboard(answers: DnsAnswer[]): string {
   return answers.map((answer) => answer.value).join(", ");
 }
 
+function isDnsFailed(result: DnsResult): boolean {
+  return result.status === "failed" || (result.status !== "in-progress" && (result.answers?.length ?? 0) === 0);
+}
+
+function getDnsFailureMessage(result: DnsResult): string {
+  return (result.answers?.length ?? 0) === 0
+    ? "The probe returned no DNS answers."
+    : "The probe could not complete the DNS lookup.";
+}
+
+function formatDnsProviderName(provider: string): string {
+  if (process.platform !== "win32") {
+    return provider;
+  }
+
+  return provider.replaceAll(" ", "-");
+}
+
+function formatDnsAnswerValue(value: string): string {
+  if (process.platform !== "win32") {
+    return value;
+  }
+
+  return value.replaceAll(".", ".\u2060").replaceAll("-", "-\u2060");
+}
+
 // Detail view for one probe
 
 function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target: string }) {
@@ -30,29 +58,43 @@ function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target
   const probe = probeResult.probe;
   const label = formatProbeLabel(probe);
   const answers = result.answers ?? [];
+  const failed = isDnsFailed(result);
+  const inProgress = result.status === "in-progress";
 
   return (
     <List.Item.Detail
+      markdown={inProgress ? "*DNS lookup in progress…*" : undefined}
       metadata={
         <List.Item.Detail.Metadata>
           <List.Item.Detail.Metadata.Label title="Hostname" text={target} />
-          <List.Item.Detail.Metadata.Label title="Location" text={label} />
-          <List.Item.Detail.Metadata.Label title="Network" text={formatProbeSubtitle(probe)} />
+          <List.Item.Detail.Metadata.Label title="Location" text={label} icon={getProbeFlagIcon(probe)} />
+          <List.Item.Detail.Metadata.Label title="Network" text={formatDnsProviderName(formatProbeSubtitle(probe))} />
           <List.Item.Detail.Metadata.Separator />
-          <List.Item.Detail.Metadata.Label
-            title="Query time"
-            text={result.timings?.total != null ? `${result.timings.total} ms` : "—"}
-          />
-          <List.Item.Detail.Metadata.Label title="Answers" text={String(answers.length)} />
-          {answers.length > 0 && <List.Item.Detail.Metadata.Separator />}
-          {answers.map((answer: DnsAnswer, index: number) => (
-            <List.Item.Detail.Metadata.Label
-              key={`${answer.type}-${answer.value}-${index}`}
-              title={answer.type}
-              text={answer.value}
-            />
-          ))}
-          {answers.length === 0 && <List.Item.Detail.Metadata.Label title="Result" text="No answers" />}
+          {failed ? (
+            <>
+              <List.Item.Detail.Metadata.Label title="Status" text={{ value: "Failed", color: Color.Red }} />
+              <List.Item.Detail.Metadata.Label title="Result" text={getDnsFailureMessage(result)} />
+            </>
+          ) : inProgress ? (
+            <List.Item.Detail.Metadata.Label title="Status" text={{ value: "Running", color: Color.Yellow }} />
+          ) : (
+            <>
+              <List.Item.Detail.Metadata.Label
+                title="Query time"
+                text={result.timings?.total != null ? `${result.timings.total} ms` : "—"}
+              />
+              <List.Item.Detail.Metadata.Label title="Answers" text={String(answers.length)} />
+              {answers.length > 0 && <List.Item.Detail.Metadata.Separator />}
+              {answers.map((answer: DnsAnswer, index: number) => (
+                <List.Item.Detail.Metadata.Label
+                  key={`${answer.type}-${answer.value}-${index}`}
+                  title={answer.type}
+                  text={formatDnsAnswerValue(answer.value)}
+                />
+              ))}
+              {answers.length === 0 && <List.Item.Detail.Metadata.Label title="Result" text="No answers" />}
+            </>
+          )}
         </List.Item.Detail.Metadata>
       }
     />
@@ -151,14 +193,14 @@ function DnsCommand({
           <Action
             title="Run Test"
             icon={Icon.Play}
-            shortcut={{ modifiers: ["cmd"], key: "r" }}
+            shortcut={Keyboard.Shortcut.Common.Refresh}
             onAction={() => handleRun(target, selectedFrom, queryType)}
           />
           {selectedAnswers.length > 0 && (
             <Action.CopyToClipboard
               title={selectedAnswers.length === 1 ? "Copy Answer" : "Copy Answers"}
               content={formatDnsAnswersForClipboard(selectedAnswers)}
-              shortcut={{ modifiers: ["cmd"], key: "c" }}
+              shortcut={Keyboard.Shortcut.Common.Copy}
             />
           )}
         </ActionPanel.Section>
@@ -166,37 +208,55 @@ function DnsCommand({
           <Action
             title="Select A-Type Record"
             icon={Icon.TextCursor}
-            shortcut={{ modifiers: ["cmd", "shift"], key: "a" }}
+            shortcut={{
+              macOS: { modifiers: ["cmd", "shift"], key: "a" },
+              Windows: { modifiers: ["ctrl", "shift"], key: "a" },
+            }}
             onAction={() => applyQueryType("A")}
           />
           <Action
             title="Select AAAA Record"
             icon={Icon.TextCursor}
-            shortcut={{ modifiers: ["cmd", "shift"], key: "4" }}
+            shortcut={{
+              macOS: { modifiers: ["cmd", "shift"], key: "4" },
+              Windows: { modifiers: ["ctrl", "shift"], key: "4" },
+            }}
             onAction={() => applyQueryType("AAAA")}
           />
           <Action
             title="Select TXT Record"
             icon={Icon.TextCursor}
-            shortcut={{ modifiers: ["cmd", "shift"], key: "x" }}
+            shortcut={{
+              macOS: { modifiers: ["cmd", "shift"], key: "x" },
+              Windows: { modifiers: ["ctrl", "shift"], key: "x" },
+            }}
             onAction={() => applyQueryType("TXT")}
           />
           <Action
             title="Select MX Record"
             icon={Icon.TextCursor}
-            shortcut={{ modifiers: ["cmd", "shift"], key: "m" }}
+            shortcut={{
+              macOS: { modifiers: ["cmd", "shift"], key: "m" },
+              Windows: { modifiers: ["ctrl", "shift"], key: "m" },
+            }}
             onAction={() => applyQueryType("MX")}
           />
           <Action
             title="Select NS Record"
             icon={Icon.TextCursor}
-            shortcut={{ modifiers: ["cmd", "shift"], key: "n" }}
+            shortcut={{
+              macOS: { modifiers: ["cmd", "shift"], key: "n" },
+              Windows: { modifiers: ["ctrl", "shift"], key: "n" },
+            }}
             onAction={() => applyQueryType("NS")}
           />
           <Action
             title="Select CNAME Record"
             icon={Icon.TextCursor}
-            shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
+            shortcut={{
+              macOS: { modifiers: ["cmd", "shift"], key: "c" },
+              Windows: { modifiers: ["ctrl", "shift"], key: "c" },
+            }}
             onAction={() => applyQueryType("CNAME")}
           />
         </ActionPanel.Section>
@@ -205,21 +265,16 @@ function DnsCommand({
             <Action.CopyToClipboard
               title="Copy Results as Markdown"
               content={markdownTable}
-              shortcut={{ modifiers: ["cmd", "opt"], key: "m" }}
             />
             <Action.CopyToClipboard
               title="Copy Share Link"
               content={getShareUrl(measurement.id)}
-              shortcut={{ modifiers: ["cmd", "opt"], key: "c" }}
             />
-            <Action
-              title="Save to Quicklinks"
+            <Action.CreateQuicklink
+              title="Create Raycast Quicklink"
               icon={Icon.Star}
-              shortcut={{ modifiers: ["cmd"], key: "s" }}
-              onAction={async () => {
-                await saveQuicklink({ target, type: "dns", from: selectedFrom });
-                await showToast({ style: Toast.Style.Success, title: "Saved to Quicklinks" });
-              }}
+              quicklink={createDnsQuicklink(target, selectedFrom, queryType)}
+              shortcut={Keyboard.Shortcut.Common.Save}
             />
           </ActionPanel.Section>
         )}
@@ -257,15 +312,16 @@ function DnsCommand({
       {isRunning && currentCount === 0 && <List.EmptyView title="Contacting probes…" icon={Icon.Clock} />}
       {!hasResults && (
         <List.EmptyView
-          title={target ? `Press ⌘R to resolve ${target}` : "Enter a hostname to get started"}
+          title={target ? getRefreshActionHint(`resolve ${target}`) : "Enter a hostname to get started"}
           icon={Icon.Network}
         />
       )}
 
       {measurement?.results.map((probeResult, index) => {
         const result = probeResult.result as DnsResult;
-        const label = formatProbeListTitle(probeResult.probe);
+        const label = formatDnsProviderName(formatProbeListTitle(probeResult.probe));
         const isFinished = result.status !== "in-progress";
+        const failed = isDnsFailed(result);
         const answers = result.answers ?? [];
         const firstAnswer = answers[0];
         const allValues = answers.map((a) => `${a.type} ${a.value}`).join("\n");
@@ -273,17 +329,26 @@ function DnsCommand({
         return (
           <List.Item
             key={resultKeys[index]}
+            icon={getProbeFlagIcon(probeResult.probe)}
             title={label}
             accessories={
               isFinished
-                ? firstAnswer
+                ? failed
                   ? [
                       {
-                        tag: { value: firstAnswer.type, color: getDnsTypeColor(firstAnswer.type) },
-                        tooltip: allValues,
+                        icon: { source: Icon.XMarkCircle, tintColor: Color.Red },
+                        text: "Failed",
+                        tooltip: getDnsFailureMessage(result),
                       },
                     ]
-                  : [{ text: "No answers" }]
+                  : firstAnswer
+                    ? [
+                        {
+                          tag: { value: firstAnswer.type, color: getDnsTypeColor(firstAnswer.type) },
+                          tooltip: allValues,
+                        },
+                      ]
+                    : [{ text: "No answers" }]
                 : [{ icon: Icon.Clock, text: "Running…" }]
             }
             detail={<ProbeDetail probeResult={probeResult} target={target} />}

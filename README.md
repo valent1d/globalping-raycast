@@ -11,8 +11,10 @@
 - Run network measurements from multiple probes worldwide
 - Compare probe results in a compact Raycast-native UI
 - Choose locations from continents, countries, cities, cloud regions, networks, ASNs, and more
-- Re-run DNS queries with different record types and HTTP checks with different methods using keyboard shortcuts
+- Re-run tests quickly with native Raycast shortcuts on macOS and Windows
+- Switch DNS record types and HTTP methods from the action panel with dedicated shortcuts
 - Keep your most-used probe locations handy with recent and popular local suggestions
+- Create Raycast Quicklinks for your favorite checks
 - Share or copy results for debugging and support workflows
 
 ## Commands
@@ -21,7 +23,7 @@ This extension includes five commands:
 
 - `Ping`: Compare latency, packet loss, and per-probe timing data
 - `DNS`: Resolve `A`, `AAAA`, `TXT`, `MX`, `NS`, and `CNAME` records from multiple locations
-- `HTTP`: Run `HEAD`, `GET`, `POST`, `PUT`, `DELETE`, and `OPTIONS` requests from distributed probes
+- `HTTP`: Run `HEAD` and `GET` requests from distributed probes
 - `Traceroute`: Inspect the route to a target hop by hop
 - `MTR`: Combine latency and route data in a compact multi-hop view
 
@@ -36,12 +38,14 @@ Available preferences:
 
 Without a token, Globalping still works, but the public API has lower rate and probe limits.
 
+See more informations about API and limitations [here](https://globalping.io/docs/api.globalping.io#overview).
+
 ## Usage
 
 1. Open one of the Globalping commands in Raycast
-2. Enter a hostname, domain, or URL target
+2. Enter a hostname, IP, domain, or URL target
 3. Optionally pick a probe location from the `From` dropdown
-4. Run the test with `⌘R`
+4. Run the test with `⌘R` on macOS or `Ctrl+R` on Windows
 
 Tips:
 
@@ -49,6 +53,7 @@ Tips:
 - DNS record types can be switched from the action panel with shortcuts
 - HTTP methods can be switched from the action panel with shortcuts
 - Results stream into the list as probe updates arrive
+- You can create a Raycast Quicklink from any command result to save a reusable check with pre-filled arguments
 
 ## Supported Locations
 
@@ -67,6 +72,28 @@ The location picker is built from Globalping probe data and supports more than j
 - Probe availability depends on the live Globalping network
 - Some measurement types may complete in batches depending on the API response model
 - This extension uses the official Globalping API at `api.globalping.io`
+
+## Quicklinks
+
+The extension supports Raycast Quicklinks directly.
+
+From any command result, use `Create Raycast Quicklink` to save a reusable shortcut that reopens the same Globalping command with the same arguments, including:
+
+- target
+- location
+- DNS record type
+- HTTP method
+
+Quicklinks are managed by Raycast itself, so users can rename them, assign aliases or hotkeys, and sync them with Raycast Cloud Sync when available.
+
+## Shortcuts
+
+The extension follows Raycast shortcut conventions as closely as possible:
+
+- `⌘R` / `Ctrl+R`: Run the current test again
+- `⌘C` / `Ctrl+C`: Copy the primary result for the current command
+- `⌘S` / `Ctrl+S`: Create a Raycast Quicklink
+- DNS and HTTP commands expose additional record-type or method shortcuts in the Action Panel
 
 ## Development
 

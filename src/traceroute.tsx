@@ -1,9 +1,15 @@
 import { useState, useEffect, useRef } from "react";
-import { List, ActionPanel, Action, Icon, showToast, Toast, LaunchProps } from "@raycast/api";
+import { Action, ActionPanel, Color, Icon, Keyboard, LaunchProps, List, showToast, Toast } from "@raycast/api";
 import { getProbeResultKeys, getShareUrl, type ProbeResult, type TracerouteResult } from "./api/globalping";
-import { formatProbeLabel, formatProbeListTitle, formatTracerouteResultAsMarkdown } from "./utils/formatters";
+import {
+  getProbeFlagIcon,
+  formatProbeLabel,
+  formatProbeListTitle,
+  formatTracerouteResultAsMarkdown,
+} from "./utils/formatters";
 import { getProbeLimitPreference } from "./utils/preferences";
-import { saveQuicklink } from "./utils/storage";
+import { createTracerouteQuicklink } from "./utils/quicklinks";
+import { getRefreshActionHint } from "./utils/shortcuts";
 import { useLocations } from "./hooks/useLocations";
 import { useMeasurement } from "./hooks/useMeasurement";
 
@@ -18,6 +24,15 @@ function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target
   const result = probeResult.result as TracerouteResult;
   const label = formatProbeLabel(probeResult.probe);
   return <List.Item.Detail markdown={formatTracerouteResultAsMarkdown(target, label, result)} />;
+}
+
+function getTracerouteFailureMessage(result: TracerouteResult): string {
+  const rawOutput = result.rawOutput?.trim();
+  if (!rawOutput) {
+    return "The probe could not complete the traceroute.";
+  }
+
+  return rawOutput;
 }
 
 // Main command
@@ -81,30 +96,26 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
           <Action
             title="Run Test"
             icon={Icon.Play}
-            shortcut={{ modifiers: ["cmd"], key: "r" }}
+            shortcut={Keyboard.Shortcut.Common.Refresh}
             onAction={() => handleRun(target, selectedFrom)}
           />
         </ActionPanel.Section>
         {measurement && (
           <ActionPanel.Section>
             <Action.CopyToClipboard
-              title="Copy Results"
+              title="Copy Results as Markdown"
               content={rawOutputs}
-              shortcut={{ modifiers: ["cmd"], key: "c" }}
+              shortcut={Keyboard.Shortcut.Common.Copy}
             />
             <Action.CopyToClipboard
               title="Copy Share Link"
               content={getShareUrl(measurement.id)}
-              shortcut={{ modifiers: ["cmd", "shift"], key: "c" }}
             />
-            <Action
-              title="Save to Quicklinks"
+            <Action.CreateQuicklink
+              title="Create Raycast Quicklink"
               icon={Icon.Star}
-              shortcut={{ modifiers: ["cmd"], key: "s" }}
-              onAction={async () => {
-                await saveQuicklink({ target, type: "traceroute", from: selectedFrom });
-                await showToast({ style: Toast.Style.Success, title: "Saved to Quicklinks" });
-              }}
+              quicklink={createTracerouteQuicklink(target, selectedFrom)}
+              shortcut={Keyboard.Shortcut.Common.Save}
             />
           </ActionPanel.Section>
         )}
@@ -142,7 +153,7 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
       {isRunning && currentCount === 0 && <List.EmptyView title="Contacting probes…" icon={Icon.Clock} />}
       {!hasResults && (
         <List.EmptyView
-          title={target ? `Press ⌘R to traceroute ${target}` : "Enter a target to get started"}
+          title={target ? getRefreshActionHint(`traceroute ${target}`) : "Enter a target to get started"}
           icon={Icon.Network}
         />
       )}
@@ -151,13 +162,27 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
         const result = probeResult.result as TracerouteResult;
         const label = formatProbeListTitle(probeResult.probe);
         const isFinished = result.status !== "in-progress";
+        const failed = result.status === "failed";
         const hopCount = result.hops?.length ?? 0;
 
         return (
           <List.Item
             key={resultKeys[index]}
+            icon={getProbeFlagIcon(probeResult.probe)}
             title={label}
-            accessories={isFinished ? [{ text: `${hopCount} hops` }] : [{ icon: Icon.Clock, text: "Running…" }]}
+            accessories={
+              isFinished
+                ? failed
+                  ? [
+                      {
+                        icon: { source: Icon.XMarkCircle, tintColor: Color.Red },
+                        text: "Failed",
+                        tooltip: getTracerouteFailureMessage(result),
+                      },
+                    ]
+                  : [{ text: `${hopCount} hops` }]
+                : [{ icon: Icon.Clock, text: "Running…" }]
+            }
             detail={<ProbeDetail probeResult={probeResult} target={target} />}
             actions={buildActions()}
           />

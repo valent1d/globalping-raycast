@@ -130,7 +130,7 @@
         {
           "name": "method",
           "type": "text",
-          "placeholder": "HEAD, GET, OPTIONS",
+          "placeholder": "HEAD, GET",
           "required": false
         }
       ]
@@ -179,7 +179,8 @@
     }
   ],
   "allowedNetworkHosts": [
-    "api.globalping.io"
+    "api.globalping.io",
+    "flagcdn.com"
   ],
   "dependencies": {
     "@raycast/api": "^1.104.8",
