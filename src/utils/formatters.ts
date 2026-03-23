@@ -1,5 +1,5 @@
 import { Color, Icon, type Image } from "@raycast/api";
-import type { ProbeLocation, DnsAnswer, HttpResult, MtrResult, TracerouteResult } from "../api/globalping";
+import type { ProbeLocation, DnsAnswer, HttpResult, MtrHop, MtrResult, TracerouteResult } from "../api/globalping";
 
 // Probe labels
 
@@ -189,6 +189,62 @@ export function formatTracerouteResultAsMarkdown(target: string, label: string, 
   return content;
 }
 
+export interface ParsedMtrRawRow {
+  host: string;
+  loss: string;
+  drop: string;
+  rcv: string;
+  avg: string;
+  stDev: string;
+  jAvg: string;
+}
+
+export function parseMtrRawOutputRows(rawOutput?: string): ParsedMtrRawRow[] {
+  if (!rawOutput) {
+    return [];
+  }
+
+  return rawOutput
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .map((line) => {
+      const match = line.match(/^(\d+)\.\s+(.*?)\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)\s+([^\s]+)$/);
+
+      if (!match || !match[3].includes("%")) {
+        return undefined;
+      }
+
+      return {
+        host: match[2].trim(),
+        loss: match[3],
+        drop: match[4],
+        rcv: match[5],
+        avg: match[6],
+        stDev: match[7],
+        jAvg: match[8],
+      };
+    })
+    .filter((row): row is ParsedMtrRawRow => row !== undefined);
+}
+
+function escapeMarkdownTableCell(value: string): string {
+  return value.replace(/\|/g, "\\|");
+}
+
+export function getMtrFallbackHost(hop?: MtrHop): string {
+  const asn = hop?.asn?.[0];
+
+  if (!asn) {
+    return "AS???";
+  }
+
+  return `AS${asn}`;
+}
+
+function formatMtrValue(value: number | undefined): string {
+  return value != null ? String(value) : "—";
+}
+
 export function formatMtrResultAsMarkdown(target: string, label: string, result: MtrResult): string {
   const hops = result.hops ?? [];
 
@@ -205,19 +261,23 @@ export function formatMtrResultAsMarkdown(target: string, label: string, result:
       : `${content}*No hop data available*`;
   }
 
-  content += "| ASN | Avg | Loss | Min | Max | Jitter |\n|---|---|---|---|---|---|\n";
-  content += hops
-    .map((hop) => {
-      const asn = hop.asn?.[0] ?? "—";
-      const avg = hop.stats?.avg != null ? `${hop.stats.avg} ms` : "—";
-      const loss = hop.stats?.loss != null ? `${hop.stats.loss}%` : "—";
-      const min = hop.stats?.min != null ? `${hop.stats.min} ms` : "—";
-      const max = hop.stats?.max != null ? `${hop.stats.max} ms` : "—";
-      const jitter = hop.stats?.jAvg != null ? `${hop.stats.jAvg} ms` : "—";
+  const rawRows = parseMtrRawOutputRows(result.rawOutput);
+  const rowCount = Math.max(hops.length, rawRows.length);
 
-      return `| ${asn} | ${avg} | ${loss} | ${min} | ${max} | ${jitter} |`;
-    })
-    .join("\n");
+  content += "| Host | Loss% | Drop | Rcv | Avg | StDev | Javg |\n|---|---|---|---|---|---|---|\n";
+  content += Array.from({ length: rowCount }, (_, index) => {
+    const hop = hops[index];
+    const rawRow = rawRows[index];
+    const host = escapeMarkdownTableCell(rawRow?.host ?? getMtrFallbackHost(hop));
+    const loss = rawRow?.loss ?? (hop?.stats?.loss != null ? `${hop.stats.loss}%` : "—");
+    const drop = rawRow?.drop ?? formatMtrValue(hop?.stats?.drop);
+    const rcv = rawRow?.rcv ?? formatMtrValue(hop?.stats?.rcv);
+    const avg = rawRow?.avg ?? formatMtrValue(hop?.stats?.avg);
+    const stDev = rawRow?.stDev ?? formatMtrValue(hop?.stats?.stDev);
+    const jAvg = rawRow?.jAvg ?? formatMtrValue(hop?.stats?.jAvg);
+
+    return `| ${host} | ${loss} | ${drop} | ${rcv} | ${avg} | ${stDev} | ${jAvg} |`;
+  }).join("\n");
 
   return content;
 }

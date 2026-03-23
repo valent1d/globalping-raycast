@@ -30,6 +30,12 @@ function isDnsFailed(result: DnsResult): boolean {
 }
 
 function getDnsFailureMessage(result: DnsResult): string {
+  const rawOutput = result.rawOutput?.trim();
+
+  if (result.status === "failed" && rawOutput) {
+    return rawOutput.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim() ?? rawOutput;
+  }
+
   return (result.answers?.length ?? 0) === 0
     ? "The probe returned no DNS answers."
     : "The probe could not complete the DNS lookup.";
@@ -125,6 +131,7 @@ function DnsCommand({
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);
   const [queryType, setQueryType] = useState((initialType || "A").toUpperCase());
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const defaultProbeLimit = getProbeLimitPreference();
   const { locationSections, preferredLocation, isLoading: isLocationsLoading } = useLocations();
   const { measurement, isRunning, runTest, probeLimit } = useMeasurement();
@@ -288,6 +295,9 @@ function DnsCommand({
   const pendingCount = isRunning ? Math.max(0, probeLimit - currentCount) : 0;
   const hasResults = isRunning || currentCount > 0;
   const resultKeys = measurement ? getProbeResultKeys(measurement.results) : [];
+  const selectedProbeResult =
+    measurement?.results.find((_, index) => resultKeys[index] === selectedItemId) ?? measurement?.results[0];
+  const actions = buildActions(selectedProbeResult);
 
   return (
     <List
@@ -296,6 +306,7 @@ function DnsCommand({
       searchBarPlaceholder="Hostname (e.g. google.com)"
       searchText={target}
       onSearchTextChange={setTarget}
+      onSelectionChange={setSelectedItemId}
       searchBarAccessory={
         <List.Dropdown tooltip="From" value={selectedFrom} onChange={setFrom}>
           {locationSections.map((section) => (
@@ -307,7 +318,7 @@ function DnsCommand({
           ))}
         </List.Dropdown>
       }
-      actions={buildActions()}
+      actions={actions}
     >
       {isRunning && currentCount === 0 && <List.EmptyView title="Contacting probes…" icon={Icon.Clock} />}
       {!hasResults && (
@@ -328,6 +339,7 @@ function DnsCommand({
 
         return (
           <List.Item
+            id={resultKeys[index]}
             key={resultKeys[index]}
             icon={getProbeFlagIcon(probeResult.probe)}
             title={label}
@@ -352,17 +364,19 @@ function DnsCommand({
                 : [{ icon: Icon.Clock, text: "Running…" }]
             }
             detail={<ProbeDetail probeResult={probeResult} target={target} />}
-            actions={buildActions(probeResult)}
+            actions={actions}
           />
         );
       })}
 
       {Array.from({ length: pendingCount }).map((_, i) => (
         <List.Item
+          id={`pending-${i}`}
           key={`pending-${i}`}
           title="Waiting for probe…"
           accessories={[{ icon: Icon.Clock }]}
           detail={<List.Item.Detail markdown="*Waiting for probe response…*" />}
+          actions={actions}
         />
       ))}
     </List>

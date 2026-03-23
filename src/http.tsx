@@ -247,6 +247,7 @@ function HttpCommand({
   const pendingCount = isRunning ? Math.max(0, probeLimit - currentCount) : 0;
   const hasResults = isRunning || currentCount > 0;
   const resultKeys = measurement ? getProbeResultKeys(measurement.results) : [];
+  const actions = buildActions();
 
   return (
     <List
@@ -266,7 +267,7 @@ function HttpCommand({
           ))}
         </List.Dropdown>
       }
-      actions={buildActions()}
+      actions={actions}
     >
       {isRunning && currentCount === 0 && <List.EmptyView title="Contacting probes…" icon={Icon.Clock} />}
       {!hasResults && (
@@ -284,6 +285,7 @@ function HttpCommand({
 
         return (
           <List.Item
+            id={resultKeys[index]}
             key={resultKeys[index]}
             icon={getProbeFlagIcon(probeResult.probe)}
             title={label}
@@ -307,17 +309,19 @@ function HttpCommand({
                   : [{ icon: Icon.Clock, text: "Running…" }]
             }
             detail={<ProbeDetail probeResult={probeResult} target={target} />}
-            actions={buildActions()}
+            actions={actions}
           />
         );
       })}
 
       {Array.from({ length: pendingCount }).map((_, i) => (
         <List.Item
+          id={`pending-${i}`}
           key={`pending-${i}`}
           title="Waiting for probe…"
           accessories={[{ icon: Icon.Clock }]}
           detail={<List.Item.Detail markdown="*Waiting for probe response…*" />}
+          actions={actions}
         />
       ))}
     </List>

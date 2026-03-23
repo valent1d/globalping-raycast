@@ -1,10 +1,17 @@
 import { useState, useEffect, useRef } from "react";
 import { Action, ActionPanel, Color, Icon, Keyboard, LaunchProps, List, showToast, Toast } from "@raycast/api";
-import { getProbeResultKeys, getShareUrl, type ProbeResult, type TracerouteResult } from "./api/globalping";
+import {
+  getProbeResultKeys,
+  getShareUrl,
+  type ProbeResult,
+  type TracerouteHop,
+  type TracerouteResult,
+} from "./api/globalping";
 import {
   getProbeFlagIcon,
   formatProbeLabel,
   formatProbeListTitle,
+  formatProbeSubtitle,
   formatTracerouteResultAsMarkdown,
 } from "./utils/formatters";
 import { getProbeLimitPreference } from "./utils/preferences";
@@ -20,10 +27,69 @@ interface Arguments {
 
 // Detail view for one probe
 
+function formatTracerouteHopText(hop: TracerouteHop): string {
+  const host = hop.resolvedHostname || "—";
+  const ip = hop.resolvedAddress && hop.resolvedAddress !== host ? ` (${hop.resolvedAddress})` : "";
+  const timings = hop.timings?.map((timing) => `${timing.rtt} ms`).join(" / ") || "—";
+  return `${host}${ip} - ${timings}`;
+}
+
+function buildTracerouteHopPreview(hops: TracerouteHop[]): Array<{ title: string; text: string }> {
+  return hops.map((hop, index) => ({
+    title: `Hop ${index + 1}`,
+    text: formatTracerouteHopText(hop),
+  }));
+}
+
 function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target: string }) {
   const result = probeResult.result as TracerouteResult;
-  const label = formatProbeLabel(probeResult.probe);
-  return <List.Item.Detail markdown={formatTracerouteResultAsMarkdown(target, label, result)} />;
+  const probe = probeResult.probe;
+  const label = formatProbeLabel(probe);
+  const failed = result.status === "failed";
+  const inProgress = result.status === "in-progress";
+  const hops = result.hops ?? [];
+  const lastHop = hops[hops.length - 1];
+  const destination =
+    lastHop == null
+      ? "—"
+      : lastHop.resolvedAddress && lastHop.resolvedAddress !== lastHop.resolvedHostname
+        ? `${lastHop.resolvedHostname} (${lastHop.resolvedAddress})`
+        : lastHop.resolvedHostname || lastHop.resolvedAddress || "—";
+  const hopPreview = buildTracerouteHopPreview(hops);
+
+  return (
+    <List.Item.Detail
+      markdown={inProgress ? "*Tracing route…*" : undefined}
+      metadata={
+        <List.Item.Detail.Metadata>
+          <List.Item.Detail.Metadata.Label title="Target" text={target} />
+          <List.Item.Detail.Metadata.Label title="Location" text={label} icon={getProbeFlagIcon(probe)} />
+          <List.Item.Detail.Metadata.Label title="Network" text={formatProbeSubtitle(probe)} />
+          <List.Item.Detail.Metadata.Separator />
+          {failed ? (
+            <>
+              <List.Item.Detail.Metadata.Label title="Status" text={{ value: "Failed", color: Color.Red }} />
+              <List.Item.Detail.Metadata.Label title="Result" text={getTracerouteFailureMessage(result)} />
+            </>
+          ) : inProgress ? (
+            <>
+              <List.Item.Detail.Metadata.Label title="Status" text={{ value: "Running", color: Color.Yellow }} />
+              <List.Item.Detail.Metadata.Label title="Hops discovered" text={String(hops.length)} />
+            </>
+          ) : (
+            <>
+              <List.Item.Detail.Metadata.Label title="Status" text="Finished" />
+              <List.Item.Detail.Metadata.Label title="Hops" text={String(hops.length)} />
+              <List.Item.Detail.Metadata.Label title="Destination" text={destination} />
+            </>
+          )}
+          {!failed && hops.length > 0 && <List.Item.Detail.Metadata.Separator />}
+          {!failed &&
+            hopPreview.map((hop) => <List.Item.Detail.Metadata.Label key={`${hop.title}-${hop.text}`} title={hop.title} text={hop.text} />)}
+        </List.Item.Detail.Metadata>
+      }
+    />
+  );
 }
 
 function getTracerouteFailureMessage(result: TracerouteResult): string {
@@ -86,8 +152,8 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
     const finishedResults =
       measurement?.results.filter((r) => (r.result as TracerouteResult).status !== "in-progress") ?? [];
 
-    const rawOutputs = finishedResults
-      .map((r) => `### ${formatProbeLabel(r.probe)}\n\`\`\`\n${(r.result as TracerouteResult).rawOutput}\n\`\`\``)
+    const markdownOutputs = finishedResults
+      .map((r) => formatTracerouteResultAsMarkdown(target, formatProbeLabel(r.probe), r.result as TracerouteResult))
       .join("\n\n");
 
     return (
@@ -104,7 +170,7 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
           <ActionPanel.Section>
             <Action.CopyToClipboard
               title="Copy Results as Markdown"
-              content={rawOutputs}
+              content={markdownOutputs}
               shortcut={Keyboard.Shortcut.Common.Copy}
             />
             <Action.CopyToClipboard
@@ -129,6 +195,7 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
   const pendingCount = isRunning ? Math.max(0, probeLimit - currentCount) : 0;
   const hasResults = isRunning || currentCount > 0;
   const resultKeys = measurement ? getProbeResultKeys(measurement.results) : [];
+  const actions = buildActions();
 
   return (
     <List
@@ -148,7 +215,7 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
           ))}
         </List.Dropdown>
       }
-      actions={buildActions()}
+      actions={actions}
     >
       {isRunning && currentCount === 0 && <List.EmptyView title="Contacting probes…" icon={Icon.Clock} />}
       {!hasResults && (
@@ -167,6 +234,7 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
 
         return (
           <List.Item
+            id={resultKeys[index]}
             key={resultKeys[index]}
             icon={getProbeFlagIcon(probeResult.probe)}
             title={label}
@@ -184,17 +252,19 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
                 : [{ icon: Icon.Clock, text: "Running…" }]
             }
             detail={<ProbeDetail probeResult={probeResult} target={target} />}
-            actions={buildActions()}
+            actions={actions}
           />
         );
       })}
 
       {Array.from({ length: pendingCount }).map((_, i) => (
         <List.Item
+          id={`pending-${i}`}
           key={`pending-${i}`}
           title="Waiting for probe…"
           accessories={[{ icon: Icon.Clock }]}
           detail={<List.Item.Detail markdown="*Waiting for probe response…*" />}
+          actions={actions}
         />
       ))}
     </List>

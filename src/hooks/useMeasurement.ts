@@ -102,7 +102,11 @@ export function useMeasurement() {
       if (controller.signal.aborted) return;
       if (Date.now() - startedAt > TIMEOUT_MS) {
         stopPolling();
-        await showToast({ style: Toast.Style.Failure, title: "Timed out", message: "No response after 30s." });
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Timed out",
+          message: `No response after ${Math.round(TIMEOUT_MS / 1000)}s.`,
+        });
         return;
       }
 

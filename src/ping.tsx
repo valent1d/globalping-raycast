@@ -79,7 +79,7 @@ function ProbeDetail({ probeResult }: { probeResult: ProbeResult }) {
   const samples = result.timings?.slice(0, PING_PACKET_COUNT) ?? [];
   const failed = result.status === "failed";
   const inProgress = result.status === "in-progress";
-  const successfulStats = result.stats as SuccessfulPingStats;
+  const successfulStats = hasPingStats(result) ? result.stats : null;
 
   return (
     <List.Item.Detail
@@ -111,10 +111,16 @@ function ProbeDetail({ probeResult }: { probeResult: ProbeResult }) {
             </>
           ) : (
             <>
-              <List.Item.Detail.Metadata.Label title="Avg latency" text={`${successfulStats.avg} ms`} />
-              <List.Item.Detail.Metadata.Label title="Min latency" text={`${successfulStats.min} ms`} />
-              <List.Item.Detail.Metadata.Label title="Max latency" text={`${successfulStats.max} ms`} />
-              <List.Item.Detail.Metadata.Label title="Packet loss" text={`${successfulStats.loss}%`} />
+              {successfulStats ? (
+                <>
+                  <List.Item.Detail.Metadata.Label title="Avg latency" text={`${successfulStats.avg} ms`} />
+                  <List.Item.Detail.Metadata.Label title="Min latency" text={`${successfulStats.min} ms`} />
+                  <List.Item.Detail.Metadata.Label title="Max latency" text={`${successfulStats.max} ms`} />
+                  <List.Item.Detail.Metadata.Label title="Packet loss" text={`${successfulStats.loss}%`} />
+                </>
+              ) : (
+                <List.Item.Detail.Metadata.Label title="Status" text="Finished" />
+              )}
               <List.Item.Detail.Metadata.Label title="Packets" text={`${receivedCount}/${transmittedCount}`} />
             </>
           )}
@@ -244,6 +250,7 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
   const pendingCount = isRunning ? Math.max(0, probeLimit - currentCount) : 0;
   const hasItems = currentCount > 0 || pendingCount > 0;
   const resultKeys = measurement ? getProbeResultKeys(measurement.results) : [];
+  const actions = buildActions();
 
   return (
     <List
@@ -263,7 +270,7 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
           ))}
         </List.Dropdown>
       }
-      actions={buildActions()}
+      actions={actions}
     >
       {!hasItems && (
         <List.EmptyView
@@ -282,6 +289,7 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
 
         return (
           <List.Item
+            id={resultKeys[index]}
             key={resultKeys[index]}
             icon={getProbeFlagIcon(probeResult.probe)}
             title={label}
@@ -305,17 +313,19 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
                   : [{ icon: Icon.Clock, text: "Running…" }]
             }
             detail={<ProbeDetail probeResult={probeResult} />}
-            actions={buildActions()}
+            actions={actions}
           />
         );
       })}
 
       {Array.from({ length: pendingCount }).map((_, i) => (
         <List.Item
+          id={`pending-${i}`}
           key={`pending-${i}`}
           title="Waiting for probe…"
           accessories={[{ icon: Icon.Clock }]}
           detail={<List.Item.Detail markdown="*Waiting for probe response…*" />}
+          actions={actions}
         />
       ))}
     </List>
