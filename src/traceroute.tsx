@@ -32,6 +32,9 @@ interface SubmittedTracerouteRequest {
 
 // Detail view for one probe
 
+/**
+ * Formats one traceroute hop into a readable single-line summary.
+ */
 function formatTracerouteHopText(hop: TracerouteHop): string {
   const host = hop.resolvedHostname || hop.resolvedAddress || "—";
   const ip =
@@ -42,6 +45,9 @@ function formatTracerouteHopText(hop: TracerouteHop): string {
   return `${host}${ip} - ${timings}`;
 }
 
+/**
+ * Converts traceroute hops into metadata rows for the detail panel.
+ */
 function buildTracerouteHopPreview(hops: TracerouteHop[]): Array<{ title: string; text: string }> {
   return hops.map((hop, index) => ({
     title: `Hop ${index + 1}`,
@@ -49,6 +55,9 @@ function buildTracerouteHopPreview(hops: TracerouteHop[]): Array<{ title: string
   }));
 }
 
+/**
+ * Renders the detail pane for a single traceroute probe result.
+ */
 function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target: string }) {
   const result = probeResult.result as TracerouteResult;
   const probe = probeResult.probe;
@@ -100,6 +109,9 @@ function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target
   );
 }
 
+/**
+ * Extracts a short traceroute failure message for the UI.
+ */
 function getTracerouteFailureMessage(result: TracerouteResult): string {
   const rawOutput = result.rawOutput?.trim();
   if (!rawOutput) {
@@ -117,6 +129,9 @@ export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
   );
 }
 
+/**
+ * Main Raycast command for running Globalping traceroute measurements.
+ */
 function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: string; initialFrom?: string }) {
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);

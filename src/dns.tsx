@@ -27,14 +27,23 @@ interface SubmittedDnsRequest {
   queryType: string;
 }
 
+/**
+ * Joins DNS answer values for clipboard/export actions.
+ */
 function formatDnsAnswersForClipboard(answers: DnsAnswer[]): string {
   return answers.map((answer) => answer.value).join(", ");
 }
 
+/**
+ * Maps DNS results to the shared failed/running/successful UI states.
+ */
 function isDnsFailed(result: DnsResult): boolean {
   return result.status === "failed" || (result.status !== "in-progress" && (result.answers?.length ?? 0) === 0);
 }
 
+/**
+ * Extracts a short DNS failure message for list tooltips and detail metadata.
+ */
 function getDnsFailureMessage(result: DnsResult): string {
   const rawOutput = result.rawOutput?.trim();
 
@@ -47,6 +56,9 @@ function getDnsFailureMessage(result: DnsResult): string {
     : "The probe could not complete the DNS lookup.";
 }
 
+/**
+ * Applies a Windows-specific provider-name workaround for truncation.
+ */
 function formatDnsProviderName(provider: string): string {
   if (process.platform !== "win32") {
     return provider;
@@ -55,6 +67,9 @@ function formatDnsProviderName(provider: string): string {
   return provider.replaceAll(" ", "-");
 }
 
+/**
+ * Applies Windows-specific invisible joiners to preserve answer readability.
+ */
 function formatDnsAnswerValue(value: string): string {
   if (process.platform !== "win32") {
     return value;
@@ -65,6 +80,9 @@ function formatDnsAnswerValue(value: string): string {
 
 // Detail view for one probe
 
+/**
+ * Renders the detail pane for a single DNS probe result.
+ */
 function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target: string }) {
   const result = probeResult.result as DnsResult;
   const probe = probeResult.probe;
@@ -125,6 +143,9 @@ export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
   );
 }
 
+/**
+ * Main Raycast command for running Globalping DNS lookups.
+ */
 function DnsCommand({
   initialTarget = "",
   initialFrom = "",

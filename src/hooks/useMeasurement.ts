@@ -10,6 +10,9 @@ import {
 } from "../api/globalping";
 import { incrementLocationStat } from "../utils/storage";
 
+/**
+ * Detects abort-like errors from fetch and AbortController flows.
+ */
 function isAbortError(e: unknown): boolean {
   return e instanceof Error && (e.name === "AbortError" || e.message === "The operation was aborted.");
 }

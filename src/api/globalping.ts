@@ -251,7 +251,6 @@ function getRetryAfterMessage(retryAfterHeader: string | null): string {
  * Parses an unsuccessful API response into a structured GlobalpingApiError.
  */
 async function parseErrorResponse(response: Response): Promise<GlobalpingApiError> {
-  const documentationUrl = undefined;
   let payload: GlobalpingErrorPayload | undefined;
   let fallbackBodyText: string | undefined;
 
@@ -269,7 +268,7 @@ async function parseErrorResponse(response: Response): Promise<GlobalpingApiErro
   const type = payload?.error?.type;
   const apiMessage = payload?.error?.message;
   const validationDetails = formatValidationDetails(payload?.error?.params);
-  const docsUrl = payload?.links?.documentation ?? documentationUrl;
+  const docsUrl = payload?.links?.documentation;
 
   switch (response.status) {
     case 400:

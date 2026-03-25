@@ -36,6 +36,9 @@ type SuccessfulPingStats = {
   drop?: number;
 };
 
+/**
+ * Narrows ping results to successful responses with complete aggregate stats.
+ */
 function hasPingStats(result: PingResult): result is PingResult & { stats: SuccessfulPingStats } {
   return (
     result.stats != null &&
@@ -46,6 +49,9 @@ function hasPingStats(result: PingResult): result is PingResult & { stats: Succe
   );
 }
 
+/**
+ * Extracts a user-friendly failure message from a ping result.
+ */
 function getPingFailureMessage(result: PingResult): string {
   const rawOutput = result.rawOutput?.trim();
   if (!rawOutput) {
@@ -55,6 +61,9 @@ function getPingFailureMessage(result: PingResult): string {
   return rawOutput;
 }
 
+/**
+ * Applies a small Windows-specific provider-name workaround for truncation.
+ */
 function formatPingProviderName(provider: string): string {
   if (process.platform !== "win32") {
     return provider;
@@ -63,6 +72,9 @@ function formatPingProviderName(provider: string): string {
   return provider.replaceAll(" ", "-");
 }
 
+/**
+ * Preserves dot-separated IP readability while working around Windows text layout quirks.
+ */
 function formatPingIpAddress(ipAddress: string): string {
   if (process.platform !== "win32") {
     return ipAddress;
@@ -74,6 +86,9 @@ function formatPingIpAddress(ipAddress: string): string {
 
 // Detail view for one probe
 
+/**
+ * Renders the detail pane for a single ping probe result.
+ */
 function ProbeDetail({ probeResult }: { probeResult: ProbeResult }) {
   const result = probeResult.result as PingResult;
   const probe = probeResult.probe;
@@ -151,6 +166,9 @@ export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
   return <PingCommand initialTarget={props.arguments.target ?? ""} initialFrom={props.arguments.from?.trim() || ""} />;
 }
 
+/**
+ * Main Raycast command for running Globalping ping measurements.
+ */
 function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: string; initialFrom?: string }) {
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);
@@ -297,7 +315,6 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
         const isFinished = result.status !== "in-progress";
         const successful = hasPingStats(result);
         const failed = isFinished && !successful;
-        const successfulStats = result.stats as SuccessfulPingStats;
 
         return (
           <List.Item
@@ -309,9 +326,9 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
               isFinished && successful
                 ? [
                     {
-                      icon: getLatencyIcon(successfulStats.avg),
-                      text: `${successfulStats.avg} ms`,
-                      tooltip: `Min: ${successfulStats.min}ms / Max: ${successfulStats.max}ms / Loss: ${successfulStats.loss}%`,
+                      icon: getLatencyIcon(result.stats.avg),
+                      text: `${result.stats.avg} ms`,
+                      tooltip: `Min: ${result.stats.min}ms / Max: ${result.stats.max}ms / Loss: ${result.stats.loss}%`,
                     },
                   ]
                 : failed

@@ -30,10 +30,16 @@ interface SubmittedHttpRequest {
 
 type SupportedHttpMethod = "HEAD" | "GET";
 
+/**
+ * Restricts incoming HTTP method arguments to the methods supported by the extension.
+ */
 function normalizeHttpMethod(method?: string): SupportedHttpMethod {
   return method?.toUpperCase() === "GET" ? "GET" : "HEAD";
 }
 
+/**
+ * Extracts a user-friendly failure message from an HTTP result.
+ */
 function getHttpFailureMessage(result: HttpResult): string {
   const rawOutput = result.rawOutput?.trim();
   if (!rawOutput) {
@@ -45,6 +51,9 @@ function getHttpFailureMessage(result: HttpResult): string {
 
 // Detail view for one probe
 
+/**
+ * Renders the detail pane for a single HTTP probe result.
+ */
 function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target: string }) {
   const result = probeResult.result as HttpResult;
   const probe = probeResult.probe;
@@ -115,6 +124,9 @@ export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
   );
 }
 
+/**
+ * Main Raycast command for running Globalping HTTP measurements.
+ */
 function HttpCommand({
   initialTarget = "",
   initialFrom = "",

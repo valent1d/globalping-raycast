@@ -260,16 +260,15 @@ function sanitizeSections(sections: LocationSection[]): LocationSection[] {
           return { title, value };
         })
         .filter((item) => {
-        const title = sanitizeLocationText(item.title);
-        const value = sanitizeLocationText(item.value);
-        const normalizedValue = value.toLowerCase();
+          const { title, value } = item;
+          const normalizedValue = value.toLowerCase();
 
-        if (!title || !value || !normalizedValue || seenValues.has(normalizedValue)) {
-          return false;
-        }
+          if (!title || !value || !normalizedValue || seenValues.has(normalizedValue)) {
+            return false;
+          }
 
-        seenValues.add(normalizedValue);
-        return true;
+          seenValues.add(normalizedValue);
+          return true;
         });
 
       return { ...section, items };

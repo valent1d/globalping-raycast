@@ -28,6 +28,9 @@ interface SubmittedMtrRequest {
 
 // Detail view for one probe
 
+/**
+ * Shortens long host strings by collapsing the middle section.
+ */
 function compactMiddle(value: string, maxLength: number): string {
   if (value.length <= maxLength) {
     return value;
@@ -38,6 +41,9 @@ function compactMiddle(value: string, maxLength: number): string {
   return `${value.slice(0, headLength)}…${value.slice(-tailLength)}`;
 }
 
+/**
+ * Splits a parsed MTR host cell into ASN, hostname, and IP parts.
+ */
 function parseMtrHostParts(host: string): { asn?: string; hostname?: string; ip?: string } {
   const match = host.match(/^(AS[^\s]+\s+)?(.+?)(?:\s+\(([^)]+)\))?$/);
 
@@ -52,6 +58,9 @@ function parseMtrHostParts(host: string): { asn?: string; hostname?: string; ip?
   };
 }
 
+/**
+ * Builds the compact host label used in the inline MTR hop preview.
+ */
 function formatCompactMtrHost(host: string): string {
   const { asn, hostname, ip } = parseMtrHostParts(host);
 
@@ -70,6 +79,9 @@ function formatCompactMtrHost(host: string): string {
   return compactMiddle(hostname ?? host, 32);
 }
 
+/**
+ * Formats MTR hops into a compact monospace markdown block for the detail view.
+ */
 function formatMtrHopMarkdown(result: MtrResult): string | undefined {
   const hops = result.hops ?? [];
   const rawRows = parseMtrRawOutputRows(result.rawOutput);
@@ -134,6 +146,9 @@ function formatMtrHopMarkdown(result: MtrResult): string | undefined {
   return ["```text", formatRow(headers), "", ...lines.slice(0, -1), "```"].join("\n");
 }
 
+/**
+ * Renders the detail pane for a single MTR probe result.
+ */
 function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target: string }) {
   const result = probeResult.result as MtrResult;
   const probe = probeResult.probe;
@@ -182,6 +197,9 @@ function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target
   );
 }
 
+/**
+ * Extracts a user-friendly failure message from an MTR result.
+ */
 function getMtrFailureMessage(result: MtrResult): string {
   const rawOutput = result.rawOutput?.trim();
   if (!rawOutput) {
@@ -197,6 +215,9 @@ export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
   return <MtrCommand initialTarget={props.arguments.target ?? ""} initialFrom={props.arguments.from?.trim() || ""} />;
 }
 
+/**
+ * Main Raycast command for running Globalping MTR measurements.
+ */
 function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: string; initialFrom?: string }) {
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);

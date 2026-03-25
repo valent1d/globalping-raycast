@@ -110,11 +110,11 @@ export function formatResultsAsMarkdownTable(
 ): string {
   if (results.length === 0) return "";
 
-  const header = `## Ping results: ${target}\n\n| Location | Network | Avg | Min | Max | Loss |\n|---|---|---|---|---|---|`;
+  const header = `## Ping results: ${escapeMarkdownTableCell(target)}\n\n| Location | Network | Avg | Min | Max | Loss |\n|---|---|---|---|---|---|`;
   const rows = results
     .map((r) => {
-      const location = formatProbeLabel(r.probe);
-      const network = r.probe.network;
+      const location = escapeMarkdownTableCell(formatProbeLabel(r.probe));
+      const network = escapeMarkdownTableCell(r.probe.network);
       const avg = r.avg != null ? `${r.avg} ms` : "—";
       const min = r.min != null ? `${r.min} ms` : "—";
       const max = r.max != null ? `${r.max} ms` : "—";
@@ -136,12 +136,15 @@ export function formatDnsResultsAsMarkdownTable(
 ): string {
   if (results.length === 0) return "";
 
-  const header = `## DNS results: ${target} (${queryType})\n\n| Location | Network | Answers |\n|---|---|---|`;
+  const header = `## DNS results: ${escapeMarkdownTableCell(target)} (${escapeMarkdownTableCell(queryType)})\n\n| Location | Network | Answers |\n|---|---|---|`;
   const rows = results
     .map((r) => {
-      const location = formatProbeLabel(r.probe);
-      const network = r.probe.network;
-      const answers = r.answers?.map((a) => a.value).join(", ") ?? "—";
+      const location = escapeMarkdownTableCell(formatProbeLabel(r.probe));
+      const network = escapeMarkdownTableCell(r.probe.network);
+      const answers =
+        r.answers && r.answers.length > 0
+          ? escapeMarkdownTableCell(r.answers.map((a) => a.value).join(", "))
+          : "—";
       return `| ${location} | ${network} | ${answers} |`;
     })
     .join("\n");
@@ -176,11 +179,11 @@ export function formatHttpResultsAsMarkdownTable(
 ): string {
   if (results.length === 0) return "";
 
-  const header = `## HTTP results: ${target}\n\n| Location | Network | Status | Total | DNS | TLS | TCP | First Byte |\n|---|---|---|---|---|---|---|---|`;
+  const header = `## HTTP results: ${escapeMarkdownTableCell(target)}\n\n| Location | Network | Status | Total | DNS | TLS | TCP | First Byte |\n|---|---|---|---|---|---|---|---|`;
   const rows = results
     .map((r) => {
-      const location = formatProbeLabel(r.probe);
-      const network = r.probe.network;
+      const location = escapeMarkdownTableCell(formatProbeLabel(r.probe));
+      const network = escapeMarkdownTableCell(r.probe.network);
       const status = r.statusCode ?? "—";
       const total = r.timings?.total != null ? `${r.timings.total}ms` : "—";
       const dns = r.timings?.dns != null ? `${r.timings.dns}ms` : "—";
@@ -202,7 +205,7 @@ export function formatHttpResultsAsMarkdownTable(
 export function formatTracerouteResultAsMarkdown(target: string, label: string, result: TracerouteResult): string {
   const hops = result.hops ?? [];
 
-  let content = `## Traceroute: \`${target}\` — ${label}\n\n`;
+  let content = `## Traceroute: \`${target}\` — ${escapeMarkdownTableCell(label)}\n\n`;
 
   if (result.status === "failed") {
     const failureMessage = result.rawOutput?.trim() || "The probe could not complete the traceroute.";
@@ -221,7 +224,7 @@ export function formatTracerouteResultAsMarkdown(target: string, label: string, 
       const host = hop.resolvedHostname || hop.resolvedAddress || "—";
       const ip = hop.resolvedAddress && hop.resolvedAddress !== host ? ` (${hop.resolvedAddress})` : "";
       const timings = hop.timings?.map((timing) => `${timing.rtt} ms`).join(" / ") || "—";
-      return `| ${host}${ip} | ${timings} |`;
+      return `| ${escapeMarkdownTableCell(`${host}${ip}`)} | ${escapeMarkdownTableCell(timings)} |`;
     })
     .join("\n");
 
@@ -269,6 +272,9 @@ export function parseMtrRawOutputRows(rawOutput?: string): ParsedMtrRawRow[] {
     .filter((row): row is ParsedMtrRawRow => row !== undefined);
 }
 
+/**
+ * Escapes markdown table separators in cell values.
+ */
 function escapeMarkdownTableCell(value: string): string {
   return value.replace(/\|/g, "\\|");
 }
@@ -286,6 +292,9 @@ export function getMtrFallbackHost(hop?: MtrHop): string {
   return `AS${asn}`;
 }
 
+/**
+ * Formats optional numeric MTR values for markdown output.
+ */
 function formatMtrValue(value: number | undefined): string {
   return value != null ? String(value) : "—";
 }
