@@ -38,7 +38,7 @@ Available preferences:
 
 Without a token, Globalping still works, but the public API has lower rate and probe limits.
 
-See more informations about API and limitations [here](https://globalping.io/docs/api.globalping.io#overview).
+See more information about the API and its limits in the [Globalping API documentation](https://globalping.io/docs/api.globalping.io#overview).
 
 ## Usage
 
