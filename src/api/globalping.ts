@@ -346,11 +346,12 @@ export function getGlobalpingErrorDisplay(error: unknown, fallbackTitle = "Globa
 /**
  * Creates a new measurement and returns its Globalping id.
  */
-export async function createMeasurement(payload: MeasurementPayload): Promise<string> {
+export async function createMeasurement(payload: MeasurementPayload, signal?: AbortSignal): Promise<string> {
   const response = await fetch(`${BASE_URL}/measurements`, {
     method: "POST",
     headers: getHeaders(),
     body: JSON.stringify(payload),
+    signal,
   });
 
   if (!response.ok) {

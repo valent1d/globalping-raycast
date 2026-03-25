@@ -21,6 +21,11 @@ interface Arguments {
   from: string;
 }
 
+interface SubmittedMtrRequest {
+  target: string;
+  from: string;
+}
+
 // Detail view for one probe
 
 function compactMiddle(value: string, maxLength: number): string {
@@ -195,6 +200,7 @@ export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
 function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: string; initialFrom?: string }) {
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);
+  const [submittedRequest, setSubmittedRequest] = useState<SubmittedMtrRequest | null>(null);
   const defaultProbeLimit = getProbeLimitPreference();
   const { locationSections, preferredLocation, isLoading: isLocationsLoading } = useLocations();
   const { measurement, isRunning, runTest, probeLimit } = useMeasurement();
@@ -219,23 +225,28 @@ function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: 
   // Run test
 
   async function handleRun(t: string, f: string) {
-    if (!t.trim()) {
+    const trimmedTarget = t.trim();
+
+    if (!trimmedTarget) {
       await showToast({ style: Toast.Style.Failure, title: "Target is required" });
       return;
     }
+    setSubmittedRequest({ target: trimmedTarget, from: f });
     await runTest(
-      { type: "mtr", target: t.trim(), locations: [{ magic: f }], limit: defaultProbeLimit },
-      `MTR to ${t}…`,
+      { type: "mtr", target: trimmedTarget, locations: [{ magic: f }], limit: defaultProbeLimit },
+      `MTR to ${trimmedTarget}…`,
     );
   }
 
   // Actions
 
   function buildActions() {
+    const requestTarget = submittedRequest?.target ?? target;
+    const requestFrom = submittedRequest?.from ?? selectedFrom;
     const finishedResults = measurement?.results.filter((r) => (r.result as MtrResult).status !== "in-progress") ?? [];
 
     const markdownResults = finishedResults
-      .map((r) => formatMtrResultAsMarkdown(target, formatProbeLabel(r.probe), r.result as MtrResult))
+      .map((r) => formatMtrResultAsMarkdown(requestTarget, formatProbeLabel(r.probe), r.result as MtrResult))
       .join("\n\n");
 
     return (
@@ -262,7 +273,7 @@ function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: 
             <Action.CreateQuicklink
               title="Create Raycast Quicklink"
               icon={Icon.Star}
-              quicklink={createMtrQuicklink(target, selectedFrom)}
+              quicklink={createMtrQuicklink(requestTarget, requestFrom)}
               shortcut={Keyboard.Shortcut.Common.Save}
             />
           </ActionPanel.Section>
@@ -278,6 +289,7 @@ function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: 
   const hasResults = isRunning || currentCount > 0;
   const resultKeys = measurement ? getProbeResultKeys(measurement.results) : [];
   const actions = buildActions();
+  const detailTarget = submittedRequest?.target ?? target;
 
   return (
     <List
@@ -334,7 +346,7 @@ function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: 
                   : [{ text: `${hopCount} hops` }, ...(lastHopAvg != null ? [{ text: `${lastHopAvg} ms` }] : [])]
                 : [{ icon: Icon.Clock, text: "Running…" }]
             }
-            detail={<ProbeDetail probeResult={probeResult} target={target} />}
+            detail={<ProbeDetail probeResult={probeResult} target={detailTarget} />}
             actions={actions}
           />
         );

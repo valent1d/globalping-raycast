@@ -252,7 +252,14 @@ function sanitizeSections(sections: LocationSection[]): LocationSection[] {
   return sections
     .map((section) => {
       const seenValues = new Set<string>();
-      const items = section.items.filter((item) => {
+      const items = section.items
+        .map((item) => {
+          const title = sanitizeLocationText(item.title);
+          const value = sanitizeLocationText(item.value);
+
+          return { title, value };
+        })
+        .filter((item) => {
         const title = sanitizeLocationText(item.title);
         const value = sanitizeLocationText(item.value);
         const normalizedValue = value.toLowerCase();
@@ -263,7 +270,7 @@ function sanitizeSections(sections: LocationSection[]): LocationSection[] {
 
         seenValues.add(normalizedValue);
         return true;
-      });
+        });
 
       return { ...section, items };
     })

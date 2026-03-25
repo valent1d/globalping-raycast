@@ -25,6 +25,11 @@ interface Arguments {
   from: string;
 }
 
+interface SubmittedTracerouteRequest {
+  target: string;
+  from: string;
+}
+
 // Detail view for one probe
 
 function formatTracerouteHopText(hop: TracerouteHop): string {
@@ -115,6 +120,7 @@ export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
 function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: string; initialFrom?: string }) {
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);
+  const [submittedRequest, setSubmittedRequest] = useState<SubmittedTracerouteRequest | null>(null);
   const defaultProbeLimit = getProbeLimitPreference();
   const { locationSections, preferredLocation, isLoading: isLocationsLoading } = useLocations();
   const { measurement, isRunning, runTest, probeLimit } = useMeasurement();
@@ -139,24 +145,31 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
   // Run test
 
   async function handleRun(t: string, f: string) {
-    if (!t.trim()) {
+    const trimmedTarget = t.trim();
+
+    if (!trimmedTarget) {
       await showToast({ style: Toast.Style.Failure, title: "Target is required" });
       return;
     }
+    setSubmittedRequest({ target: trimmedTarget, from: f });
     await runTest(
-      { type: "traceroute", target: t.trim(), locations: [{ magic: f }], limit: defaultProbeLimit },
-      `Traceroute to ${t}…`,
+      { type: "traceroute", target: trimmedTarget, locations: [{ magic: f }], limit: defaultProbeLimit },
+      `Traceroute to ${trimmedTarget}…`,
     );
   }
 
   // Actions
 
   function buildActions() {
+    const requestTarget = submittedRequest?.target ?? target;
+    const requestFrom = submittedRequest?.from ?? selectedFrom;
     const finishedResults =
       measurement?.results.filter((r) => (r.result as TracerouteResult).status !== "in-progress") ?? [];
 
     const markdownOutputs = finishedResults
-      .map((r) => formatTracerouteResultAsMarkdown(target, formatProbeLabel(r.probe), r.result as TracerouteResult))
+      .map((r) =>
+        formatTracerouteResultAsMarkdown(requestTarget, formatProbeLabel(r.probe), r.result as TracerouteResult),
+      )
       .join("\n\n");
 
     return (
@@ -183,7 +196,7 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
             <Action.CreateQuicklink
               title="Create Raycast Quicklink"
               icon={Icon.Star}
-              quicklink={createTracerouteQuicklink(target, selectedFrom)}
+              quicklink={createTracerouteQuicklink(requestTarget, requestFrom)}
               shortcut={Keyboard.Shortcut.Common.Save}
             />
           </ActionPanel.Section>
@@ -199,6 +212,7 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
   const hasResults = isRunning || currentCount > 0;
   const resultKeys = measurement ? getProbeResultKeys(measurement.results) : [];
   const actions = buildActions();
+  const detailTarget = submittedRequest?.target ?? target;
 
   return (
     <List
@@ -254,7 +268,7 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
                   : [{ text: `${hopCount} hops` }]
                 : [{ icon: Icon.Clock, text: "Running…" }]
             }
-            detail={<ProbeDetail probeResult={probeResult} target={target} />}
+            detail={<ProbeDetail probeResult={probeResult} target={detailTarget} />}
             actions={actions}
           />
         );

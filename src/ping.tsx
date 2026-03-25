@@ -20,6 +20,11 @@ interface Arguments {
   from: string;
 }
 
+interface SubmittedPingRequest {
+  target: string;
+  from: string;
+}
+
 const PING_PACKET_COUNT = 5;
 type SuccessfulPingStats = {
   min: number;
@@ -149,6 +154,7 @@ export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
 function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: string; initialFrom?: string }) {
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);
+  const [submittedRequest, setSubmittedRequest] = useState<SubmittedPingRequest | null>(null);
   const defaultProbeLimit = getProbeLimitPreference();
   const { locationSections, preferredLocation, isLoading: isLocationsLoading } = useLocations();
   const { measurement, isRunning, runTest, probeLimit } = useMeasurement();
@@ -173,30 +179,36 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
   // Run test
 
   async function handleRun(t: string, f: string) {
-    if (!t.trim()) {
+    const trimmedTarget = t.trim();
+
+    if (!trimmedTarget) {
       await showToast({ style: Toast.Style.Failure, title: "Target is required" });
       return;
     }
+
+    setSubmittedRequest({ target: trimmedTarget, from: f });
     await runTest(
       {
         type: "ping",
-        target: t.trim(),
+        target: trimmedTarget,
         locations: [{ magic: f }],
         limit: defaultProbeLimit,
         measurementOptions: { packets: PING_PACKET_COUNT },
       },
-      `Pinging ${t}…`,
+      `Pinging ${trimmedTarget}…`,
     );
   }
 
   // Actions
 
   function buildActions() {
+    const requestTarget = submittedRequest?.target ?? target;
+    const requestFrom = submittedRequest?.from ?? selectedFrom;
     const finishedResults = measurement?.results.filter((r) => (r.result as PingResult).status !== "in-progress") ?? [];
 
     const markdownTable = measurement
       ? formatResultsAsMarkdownTable(
-          target,
+          requestTarget,
           finishedResults.map((r) => {
             const pingResult = r.result as PingResult;
 
@@ -235,7 +247,7 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
             <Action.CreateQuicklink
               title="Create Raycast Quicklink"
               icon={Icon.Star}
-              quicklink={createPingQuicklink(target, selectedFrom)}
+              quicklink={createPingQuicklink(requestTarget, requestFrom)}
               shortcut={Keyboard.Shortcut.Common.Save}
             />
           </ActionPanel.Section>

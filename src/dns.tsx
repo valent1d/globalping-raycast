@@ -21,6 +21,12 @@ interface Arguments {
   type: string;
 }
 
+interface SubmittedDnsRequest {
+  target: string;
+  from: string;
+  queryType: string;
+}
+
 function formatDnsAnswersForClipboard(answers: DnsAnswer[]): string {
   return answers.map((answer) => answer.value).join(", ");
 }
@@ -131,6 +137,7 @@ function DnsCommand({
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);
   const [queryType, setQueryType] = useState((initialType || "A").toUpperCase());
+  const [submittedRequest, setSubmittedRequest] = useState<SubmittedDnsRequest | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const defaultProbeLimit = getProbeLimitPreference();
   const { locationSections, preferredLocation, isLoading: isLocationsLoading } = useLocations();
@@ -156,19 +163,24 @@ function DnsCommand({
   // Run test
 
   async function handleRun(t: string, f: string, qt: string) {
-    if (!t.trim()) {
+    const trimmedTarget = t.trim();
+    const normalizedQueryType = qt.toUpperCase();
+
+    if (!trimmedTarget) {
       await showToast({ style: Toast.Style.Failure, title: "Target is required" });
       return;
     }
+
+    setSubmittedRequest({ target: trimmedTarget, from: f, queryType: normalizedQueryType });
     await runTest(
       {
         type: "dns",
-        target: t.trim(),
+        target: trimmedTarget,
         locations: [{ magic: f }],
         limit: defaultProbeLimit,
-        measurementOptions: { query: { type: qt.toUpperCase() } },
+        measurementOptions: { query: { type: normalizedQueryType } },
       },
-      `Resolving ${qt.toUpperCase()} ${t}…`,
+      `Resolving ${normalizedQueryType} ${trimmedTarget}…`,
     );
   }
 
@@ -182,14 +194,17 @@ function DnsCommand({
   // Actions
 
   function buildActions(probeResult?: ProbeResult) {
+    const requestTarget = submittedRequest?.target ?? target;
+    const requestFrom = submittedRequest?.from ?? selectedFrom;
+    const requestQueryType = submittedRequest?.queryType ?? queryType;
     const finishedResults = measurement?.results.filter((r) => (r.result as DnsResult).status !== "in-progress") ?? [];
     const selectedResult = probeResult?.result as DnsResult | undefined;
     const selectedAnswers = selectedResult?.answers ?? [];
 
     const markdownTable = measurement
       ? formatDnsResultsAsMarkdownTable(
-          target,
-          queryType,
+          requestTarget,
+          requestQueryType,
           finishedResults.map((r) => ({ probe: r.probe, answers: (r.result as DnsResult).answers })),
         )
       : "";
@@ -280,7 +295,7 @@ function DnsCommand({
             <Action.CreateQuicklink
               title="Create Raycast Quicklink"
               icon={Icon.Star}
-              quicklink={createDnsQuicklink(target, selectedFrom, queryType)}
+              quicklink={createDnsQuicklink(requestTarget, requestFrom, requestQueryType)}
               shortcut={Keyboard.Shortcut.Common.Save}
             />
           </ActionPanel.Section>
@@ -298,6 +313,7 @@ function DnsCommand({
   const selectedProbeResult =
     measurement?.results.find((_, index) => resultKeys[index] === selectedItemId) ?? measurement?.results[0];
   const actions = buildActions(selectedProbeResult);
+  const detailTarget = submittedRequest?.target ?? target;
 
   return (
     <List
@@ -363,7 +379,7 @@ function DnsCommand({
                     : [{ text: "No answers" }]
                 : [{ icon: Icon.Clock, text: "Running…" }]
             }
-            detail={<ProbeDetail probeResult={probeResult} target={target} />}
+            detail={<ProbeDetail probeResult={probeResult} target={detailTarget} />}
             actions={actions}
           />
         );

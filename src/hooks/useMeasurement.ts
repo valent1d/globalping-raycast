@@ -28,6 +28,8 @@ export function useMeasurement() {
   const isCreatingRef = useRef(false);
   const toastRef = useRef<Awaited<ReturnType<typeof showToast>> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const createAbortControllerRef = useRef<AbortController | null>(null);
+  const runTokenRef = useRef(0);
 
   /**
    * Computes a polling timeout based on command type and requested probe count.
@@ -50,6 +52,14 @@ export function useMeasurement() {
     abortControllerRef.current = null;
     isFetchingRef.current = false;
     setIsRunning(false);
+  }
+
+  /**
+   * Cancels the in-flight measurement creation request, if any.
+   */
+  function stopCreateRequest() {
+    createAbortControllerRef.current?.abort();
+    createAbortControllerRef.current = null;
   }
 
   /**
@@ -91,6 +101,7 @@ export function useMeasurement() {
     if (!measurementId) return;
 
     const activeMeasurementId = measurementId;
+    const activeRunToken = runTokenRef.current;
     const startedAt = Date.now();
     const TIMEOUT_MS = getPollingTimeoutMs(measurement?.type ?? null, probeLimit);
     const POLL_INTERVAL_MS = 600;
@@ -126,10 +137,13 @@ export function useMeasurement() {
       try {
         const requestSignal = AbortSignal.any([controller.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
         const result = await getMeasurement(activeMeasurementId, requestSignal);
+        if (controller.signal.aborted || activeRunToken !== runTokenRef.current) {
+          return;
+        }
         setMeasurement((previous) => mergeMeasurementResults(previous, result));
         if (result.status !== "in-progress") {
           stopPolling();
-          if (toastRef.current) {
+          if (toastRef.current && activeRunToken === runTokenRef.current) {
             toastRef.current.style = Toast.Style.Success;
             toastRef.current.title = "Done";
           }
@@ -140,12 +154,16 @@ export function useMeasurement() {
           isFetchingRef.current = false;
           return;
         }
+        if (activeRunToken !== runTokenRef.current) {
+          isFetchingRef.current = false;
+          return;
+        }
         stopPolling();
         const { title, message } = getGlobalpingErrorDisplay(e, "Polling failed");
         await showToast({ style: Toast.Style.Failure, title, message });
       } finally {
         isFetchingRef.current = false;
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && activeRunToken === runTokenRef.current) {
           scheduleNextPoll();
         }
       }
@@ -168,9 +186,11 @@ export function useMeasurement() {
   // Run test
 
   async function runTest(payload: MeasurementPayload, toastTitle: string) {
-    if (isCreatingRef.current) return;
-    isCreatingRef.current = true;
+    runTokenRef.current += 1;
+    const activeRunToken = runTokenRef.current;
     stopPolling();
+    stopCreateRequest();
+    isCreatingRef.current = true;
 
     setIsRunning(true);
     setMeasurement(null);
@@ -178,9 +198,23 @@ export function useMeasurement() {
     setProbeLimit(payload.limit ?? 1);
 
     toastRef.current = await showToast({ style: Toast.Style.Animated, title: toastTitle });
+    if (activeRunToken !== runTokenRef.current) {
+      return;
+    }
+
+    let controller: AbortController | null = null;
 
     try {
-      const id = await createMeasurement(payload);
+      controller = new AbortController();
+      createAbortControllerRef.current = controller;
+      const requestSignal = AbortSignal.any([controller.signal, AbortSignal.timeout(12_000)]);
+      const id = await createMeasurement(payload, requestSignal);
+      if (activeRunToken !== runTokenRef.current) {
+        return;
+      }
+      if (createAbortControllerRef.current === controller) {
+        createAbortControllerRef.current = null;
+      }
       setMeasurement({
         id,
         type: payload.type,
@@ -194,8 +228,16 @@ export function useMeasurement() {
         void incrementLocationStat(firstLocation.magic);
       }
     } catch (e) {
-      isCreatingRef.current = false;
+      if (createAbortControllerRef.current === controller) {
+        createAbortControllerRef.current = null;
+      }
+      if (activeRunToken !== runTokenRef.current) {
+        return;
+      }
       setIsRunning(false);
+      if (isAbortError(e)) {
+        return;
+      }
       if (toastRef.current) {
         const { title, message } = getGlobalpingErrorDisplay(e, "Failed to start test");
         toastRef.current.style = Toast.Style.Failure;
@@ -203,9 +245,11 @@ export function useMeasurement() {
         toastRef.current.message = message;
       }
       return;
+    } finally {
+      if (activeRunToken === runTokenRef.current) {
+        isCreatingRef.current = false;
+      }
     }
-
-    isCreatingRef.current = false;
   }
 
   return { measurement, isRunning, runTest, probeLimit };
