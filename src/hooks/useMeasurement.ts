@@ -22,6 +22,13 @@ function isAbortError(e: unknown): boolean {
 }
 
 /**
+ * Treats per-request polling timeouts as transient so the next poll can retry.
+ */
+function isRetriablePollingError(e: unknown): boolean {
+  return e instanceof Error && (isAbortError(e) || e.name === "TimeoutError");
+}
+
+/**
  * Reuses previously assigned duplicate suffixes when probe results have no stable server id.
  */
 function resolveProbeResultKeys(previous: Measurement | null, nextResults: ProbeResult[]): string[] {
@@ -229,7 +236,7 @@ export function useMeasurement() {
           return;
         }
       } catch (e) {
-        if (isAbortError(e)) {
+        if (isRetriablePollingError(e)) {
           isFetchingRef.current = false;
           return;
         }
