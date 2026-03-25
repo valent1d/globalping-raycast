@@ -2,6 +2,9 @@ import { environment } from "@raycast/api";
 
 type QuicklinkArguments = Record<string, string | undefined>;
 
+/**
+ * Builds a Raycast deeplink for one of this extension's commands.
+ */
 function createExtensionDeeplink(command: string, args: QuicklinkArguments) {
   const filteredArguments = Object.fromEntries(
     Object.entries(args).filter(([, value]) => typeof value === "string" && value.trim().length > 0),
@@ -18,10 +21,16 @@ function createExtensionDeeplink(command: string, args: QuicklinkArguments) {
   return query ? `${base}?${query}` : base;
 }
 
+/**
+ * Omits the default world location from generated quicklink names.
+ */
 function formatLocationSuffix(from: string) {
   return from && from !== "world" ? ` from ${from}` : "";
 }
 
+/**
+ * Creates a Raycast quicklink descriptor for the ping command.
+ */
 export function createPingQuicklink(target: string, from: string) {
   return {
     name: `Ping ${target}${formatLocationSuffix(from)}`,
@@ -29,6 +38,9 @@ export function createPingQuicklink(target: string, from: string) {
   };
 }
 
+/**
+ * Creates a Raycast quicklink descriptor for the DNS command.
+ */
 export function createDnsQuicklink(target: string, from: string, type: string) {
   const normalizedType = type.toUpperCase();
 
@@ -38,6 +50,9 @@ export function createDnsQuicklink(target: string, from: string, type: string) {
   };
 }
 
+/**
+ * Creates a Raycast quicklink descriptor for the HTTP command.
+ */
 export function createHttpQuicklink(target: string, from: string, method: string) {
   const normalizedMethod = method.toUpperCase();
 
@@ -47,6 +62,9 @@ export function createHttpQuicklink(target: string, from: string, method: string
   };
 }
 
+/**
+ * Creates a Raycast quicklink descriptor for the MTR command.
+ */
 export function createMtrQuicklink(target: string, from: string) {
   return {
     name: `MTR ${target}${formatLocationSuffix(from)}`,
@@ -54,6 +72,9 @@ export function createMtrQuicklink(target: string, from: string) {
   };
 }
 
+/**
+ * Creates a Raycast quicklink descriptor for the traceroute command.
+ */
 export function createTracerouteQuicklink(target: string, from: string) {
   return {
     name: `Traceroute ${target}${formatLocationSuffix(from)}`,

@@ -154,6 +154,9 @@ const CLOUD_PROVIDERS = [
   { key: "azure", title: "Azure", magic: "azure" },
 ] as const;
 
+/**
+ * Removes invisible/control characters from location values used in storage and UI.
+ */
 function sanitizeLocationText(value: string): string {
   return Array.from(value)
     .filter((char) => {
@@ -172,10 +175,16 @@ function sanitizeLocationText(value: string): string {
     .trim();
 }
 
+/**
+ * Sorts dropdown items alphabetically by their display title.
+ */
 function sortByTitle(items: LocationItem[]): LocationItem[] {
   return items.sort((a, b) => a.title.localeCompare(b.title));
 }
 
+/**
+ * Converts provider region tags into readable dropdown labels.
+ */
 function titleFromCloudTag(tag: string): string {
   if (tag.startsWith("aws-")) return `AWS · ${tag.slice(4)}`;
   if (tag.startsWith("gcp-")) return `GCP · ${tag.slice(4)}`;
@@ -183,6 +192,9 @@ function titleFromCloudTag(tag: string): string {
   return tag;
 }
 
+/**
+ * Builds the combined recent/popular section and returns the preferred default location.
+ */
 function buildRecentPopularSection(
   baseSections: LocationSection[],
   recentLocations: string[],
@@ -233,6 +245,9 @@ function buildRecentPopularSection(
   };
 }
 
+/**
+ * Removes empty or duplicate items from all location sections before rendering.
+ */
 function sanitizeSections(sections: LocationSection[]): LocationSection[] {
   return sections
     .map((section) => {
@@ -257,6 +272,9 @@ function sanitizeSections(sections: LocationSection[]): LocationSection[] {
 
 // Builder
 
+/**
+ * Builds all location dropdown sections from the live Globalping probe catalogue.
+ */
 function buildSections(probes: Probe[]): LocationSection[] {
   const continents = new Set<string>();
   const regions = new Set<string>();
@@ -531,6 +549,9 @@ const FALLBACK_SECTIONS: LocationSection[] = [
 
 // Hook
 
+/**
+ * Loads location sections from Globalping, falling back to a static catalogue when needed.
+ */
 export function useLocations() {
   const abortable = useRef<AbortController>(null);
   const { data, isLoading } = useCachedPromise(

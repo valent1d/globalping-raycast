@@ -183,8 +183,8 @@
     "flagcdn.com"
   ],
   "dependencies": {
-    "@raycast/api": "^1.104.8",
-    "@raycast/utils": "^1.17.0"
+    "@raycast/api": "^1.104.11",
+    "@raycast/utils": "^2.2.3"
   },
   "devDependencies": {
     "@raycast/eslint-config": "^2.0.4",

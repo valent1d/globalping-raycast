@@ -22,6 +22,12 @@ interface Arguments {
   method: string;
 }
 
+interface SubmittedHttpRequest {
+  target: string;
+  from: string;
+  method: SupportedHttpMethod;
+}
+
 type SupportedHttpMethod = "HEAD" | "GET";
 
 function normalizeHttpMethod(method?: string): SupportedHttpMethod {
@@ -121,6 +127,7 @@ function HttpCommand({
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);
   const [method, setMethod] = useState<SupportedHttpMethod>(normalizeHttpMethod(initialMethod));
+  const [submittedRequest, setSubmittedRequest] = useState<SubmittedHttpRequest | null>(null);
   const defaultProbeLimit = getProbeLimitPreference();
   const { locationSections, preferredLocation, isLoading: isLocationsLoading } = useLocations();
   const { measurement, isRunning, runTest, probeLimit } = useMeasurement();
@@ -145,19 +152,23 @@ function HttpCommand({
   // Run test
 
   async function handleRun(t: string, f: string, m: SupportedHttpMethod) {
-    if (!t.trim()) {
+    const trimmedTarget = t.trim();
+
+    if (!trimmedTarget) {
       await showToast({ style: Toast.Style.Failure, title: "Target is required" });
       return;
     }
+
+    setSubmittedRequest({ target: trimmedTarget, from: f, method: m });
     await runTest(
       {
         type: "http",
-        target: t.trim(),
+        target: trimmedTarget,
         locations: [{ magic: f }],
         limit: defaultProbeLimit,
         measurementOptions: { request: { method: m } },
       },
-      `${m} ${t}…`,
+      `${m} ${trimmedTarget}…`,
     );
   }
 
@@ -171,11 +182,14 @@ function HttpCommand({
   // Actions
 
   function buildActions() {
+    const requestTarget = submittedRequest?.target ?? target;
+    const requestFrom = submittedRequest?.from ?? selectedFrom;
+    const requestMethod = submittedRequest?.method ?? method;
     const finishedResults = measurement?.results.filter((r) => (r.result as HttpResult).status !== "in-progress") ?? [];
 
     const markdownTable = measurement
       ? formatHttpResultsAsMarkdownTable(
-          target,
+          requestTarget,
           finishedResults.map((r) => ({
             probe: r.probe,
             statusCode: (r.result as HttpResult).statusCode,
@@ -184,7 +198,9 @@ function HttpCommand({
         )
       : "";
     const markdownDetails = finishedResults
-      .map((result) => formatHttpResultAsMarkdown(target, formatProbeLabel(result.probe), result.result as HttpResult))
+      .map((result) =>
+        formatHttpResultAsMarkdown(requestTarget, formatProbeLabel(result.probe), result.result as HttpResult),
+      )
       .join("\n\n");
     const markdownContent = [markdownTable, markdownDetails].filter(Boolean).join("\n\n");
 
@@ -232,7 +248,7 @@ function HttpCommand({
             <Action.CreateQuicklink
               title="Create Raycast Quicklink"
               icon={Icon.Star}
-              quicklink={createHttpQuicklink(target, selectedFrom, method)}
+              quicklink={createHttpQuicklink(requestTarget, requestFrom, requestMethod)}
               shortcut={Keyboard.Shortcut.Common.Save}
             />
           </ActionPanel.Section>
@@ -248,6 +264,7 @@ function HttpCommand({
   const hasResults = isRunning || currentCount > 0;
   const resultKeys = measurement ? getProbeResultKeys(measurement.results) : [];
   const actions = buildActions();
+  const detailTarget = submittedRequest?.target ?? target;
 
   return (
     <List
@@ -308,7 +325,7 @@ function HttpCommand({
                     ]
                   : [{ icon: Icon.Clock, text: "Running…" }]
             }
-            detail={<ProbeDetail probeResult={probeResult} target={target} />}
+            detail={<ProbeDetail probeResult={probeResult} target={detailTarget} />}
             actions={actions}
           />
         );

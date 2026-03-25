@@ -7,7 +7,11 @@ export interface LocationStat {
 }
 
 const LOCATION_STATS_KEY = "locationStats";
+let locationStatsWriteQueue: Promise<void> = Promise.resolve();
 
+/**
+ * Removes invisible/control characters from stored location values.
+ */
 function sanitizeLocation(value: string): string {
   return Array.from(value)
     .filter((char) => {
@@ -26,15 +30,22 @@ function sanitizeLocation(value: string): string {
     .trim();
 }
 
+/**
+ * Loads, validates, and de-duplicates persisted location usage stats.
+ */
 export async function getLocationStats(): Promise<LocationStat[]> {
   const raw = await LocalStorage.getItem<string>(LOCATION_STATS_KEY);
   if (!raw) return [];
 
-  let parsed: LocationStat[];
+  let parsed: unknown;
 
   try {
-    parsed = JSON.parse(raw) as LocationStat[];
+    parsed = JSON.parse(raw);
   } catch {
+    return [];
+  }
+
+  if (!Array.isArray(parsed)) {
     return [];
   }
 
@@ -69,20 +80,29 @@ export async function getLocationStats(): Promise<LocationStat[]> {
   return [...mergedByLocation.values()];
 }
 
+/**
+ * Increments usage stats for a location while serializing writes to avoid lost updates.
+ */
 export async function incrementLocationStat(location: string): Promise<void> {
   const sanitizedLocation = sanitizeLocation(location);
   if (!sanitizedLocation) {
     return;
   }
 
-  const stats = await getLocationStats();
-  const existing = stats.find((s) => s.location.toLowerCase() === sanitizedLocation.toLowerCase());
-  if (existing) {
-    existing.location = sanitizedLocation;
-    existing.count += 1;
-    existing.lastUsed = Date.now();
-  } else {
-    stats.push({ location: sanitizedLocation, count: 1, lastUsed: Date.now() });
-  }
-  await LocalStorage.setItem(LOCATION_STATS_KEY, JSON.stringify(stats));
+  const updatePromise = locationStatsWriteQueue.then(async () => {
+    const stats = await getLocationStats();
+    const existing = stats.find((s) => s.location.toLowerCase() === sanitizedLocation.toLowerCase());
+    if (existing) {
+      existing.location = sanitizedLocation;
+      existing.count += 1;
+      existing.lastUsed = Date.now();
+    } else {
+      stats.push({ location: sanitizedLocation, count: 1, lastUsed: Date.now() });
+    }
+
+    await LocalStorage.setItem(LOCATION_STATS_KEY, JSON.stringify(stats));
+  });
+
+  locationStatsWriteQueue = updatePromise.catch(() => undefined);
+  return updatePromise;
 }

@@ -77,7 +77,7 @@ function ProbeDetail({ probeResult }: { probeResult: ProbeResult }) {
   const receivedCount = stats?.rcv ?? result.timings?.length ?? 0;
   const transmittedCount = stats?.total ?? result.timings?.length ?? 0;
   const samples = result.timings?.slice(0, PING_PACKET_COUNT) ?? [];
-  const failed = result.status === "failed";
+  const failed = result.status === "failed" || (result.status !== "in-progress" && !hasPingStats(result));
   const inProgress = result.status === "in-progress";
   const successfulStats = hasPingStats(result) ? result.stats : null;
 

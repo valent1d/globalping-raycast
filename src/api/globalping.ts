@@ -133,6 +133,9 @@ export interface Measurement {
   results: ProbeResult[];
 }
 
+/**
+ * Builds the stable portion of a probe key from its location metadata.
+ */
 export function getProbeResultBaseKey(probe: ProbeLocation): string {
   return [
     probe.continent,
@@ -146,11 +149,17 @@ export function getProbeResultBaseKey(probe: ProbeLocation): string {
   ].join("|");
 }
 
+/**
+ * Builds a unique probe key, appending an occurrence suffix when duplicates exist.
+ */
 export function getProbeResultKey(probe: ProbeLocation, occurrenceIndex = 0): string {
   const baseKey = getProbeResultBaseKey(probe);
   return occurrenceIndex === 0 ? baseKey : `${baseKey}#${occurrenceIndex}`;
 }
 
+/**
+ * Generates stable unique keys for a list of probe results, including duplicates.
+ */
 export function getProbeResultKeys(results: ProbeResult[]): string[] {
   const seenCounts = new Map<string, number>();
 
@@ -176,6 +185,9 @@ export interface MeasurementPayload {
 
 const BASE_URL = "https://api.globalping.io/v1";
 
+/**
+ * Builds the default request headers, including the optional API token.
+ */
 function getHeaders(): Record<string, string> {
   const { apiToken } = getPreferenceValues<Preferences>();
   const headers: Record<string, string> = {
@@ -203,6 +215,9 @@ export class GlobalpingApiError extends Error {
   }
 }
 
+/**
+ * Formats per-parameter validation errors returned by the Globalping API.
+ */
 function formatValidationDetails(params?: Record<string, string>): string | undefined {
   if (!params) {
     return undefined;
@@ -216,6 +231,9 @@ function formatValidationDetails(params?: Record<string, string>): string | unde
   return entries.map(([key, value]) => `${key}: ${value}`).join(" • ");
 }
 
+/**
+ * Turns the Retry-After header into a user-facing rate limit message.
+ */
 function getRetryAfterMessage(retryAfterHeader: string | null): string {
   if (!retryAfterHeader) {
     return "Too many requests. Try again in a moment, or add an API token in Raycast preferences for higher limits.";
@@ -229,6 +247,9 @@ function getRetryAfterMessage(retryAfterHeader: string | null): string {
   return "Too many requests. Try again later, or add an API token in Raycast preferences for higher limits.";
 }
 
+/**
+ * Parses an unsuccessful API response into a structured GlobalpingApiError.
+ */
 async function parseErrorResponse(response: Response): Promise<GlobalpingApiError> {
   const documentationUrl = undefined;
   let payload: GlobalpingErrorPayload | undefined;
@@ -295,6 +316,9 @@ async function parseErrorResponse(response: Response): Promise<GlobalpingApiErro
   }
 }
 
+/**
+ * Converts unknown thrown errors into a toast-friendly title/message pair.
+ */
 export function getGlobalpingErrorDisplay(error: unknown, fallbackTitle = "Globalping request failed") {
   if (error instanceof GlobalpingApiError) {
     return {
@@ -319,6 +343,9 @@ export function getGlobalpingErrorDisplay(error: unknown, fallbackTitle = "Globa
   };
 }
 
+/**
+ * Creates a new measurement and returns its Globalping id.
+ */
 export async function createMeasurement(payload: MeasurementPayload): Promise<string> {
   const response = await fetch(`${BASE_URL}/measurements`, {
     method: "POST",
@@ -334,6 +361,9 @@ export async function createMeasurement(payload: MeasurementPayload): Promise<st
   return data.id;
 }
 
+/**
+ * Fetches the latest state for an existing measurement.
+ */
 export async function getMeasurement(id: string, signal?: AbortSignal): Promise<Measurement> {
   const response = await fetch(`${BASE_URL}/measurements/${id}`, {
     headers: getHeaders(),
@@ -347,6 +377,9 @@ export async function getMeasurement(id: string, signal?: AbortSignal): Promise<
   return response.json() as Promise<Measurement>;
 }
 
+/**
+ * Builds a public Globalping share URL for a measurement.
+ */
 export function getShareUrl(id: string): string {
   return `https://globalping.io/?measurement=${id}`;
 }
@@ -370,6 +403,9 @@ export interface Probe {
   resolvers: string[];
 }
 
+/**
+ * Fetches the full probe catalogue used to build location suggestions.
+ */
 export async function getProbes(signal?: AbortSignal): Promise<Probe[]> {
   const response = await fetch(`${BASE_URL}/probes`, {
     headers: getHeaders(),

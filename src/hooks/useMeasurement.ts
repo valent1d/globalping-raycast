@@ -14,6 +14,9 @@ function isAbortError(e: unknown): boolean {
   return e instanceof Error && (e.name === "AbortError" || e.message === "The operation was aborted.");
 }
 
+/**
+ * Starts measurements, polls Globalping for updates, and merges incremental probe results.
+ */
 export function useMeasurement() {
   const [measurement, setMeasurement] = useState<Measurement | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -26,12 +29,18 @@ export function useMeasurement() {
   const toastRef = useRef<Awaited<ReturnType<typeof showToast>> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  /**
+   * Computes a polling timeout based on command type and requested probe count.
+   */
   function getPollingTimeoutMs(type: Measurement["type"] | null, limit: number): number {
     const baseTimeoutMs = type === "mtr" || type === "traceroute" ? 45_000 : 30_000;
     const perProbeTimeoutMs = (type === "mtr" || type === "traceroute" ? 1_200 : 700) * Math.max(limit, 1);
     return Math.max(baseTimeoutMs, perProbeTimeoutMs);
   }
 
+  /**
+   * Cancels any in-flight polling work and marks the measurement as no longer running.
+   */
   function stopPolling() {
     if (pollingRef.current) {
       clearTimeout(pollingRef.current);
@@ -43,6 +52,9 @@ export function useMeasurement() {
     setIsRunning(false);
   }
 
+  /**
+   * Merges a new measurement payload with the previous one while preserving streamed probe results.
+   */
   function mergeMeasurementResults(previous: Measurement | null, next: Measurement): Measurement {
     if (!previous || previous.id !== next.id) {
       return next;
@@ -177,7 +189,10 @@ export function useMeasurement() {
         results: [],
       });
       setMeasurementId(id);
-      void incrementLocationStat(payload.locations[0].magic);
+      const firstLocation = payload.locations[0];
+      if (firstLocation?.magic) {
+        void incrementLocationStat(firstLocation.magic);
+      }
     } catch (e) {
       isCreatingRef.current = false;
       setIsRunning(false);

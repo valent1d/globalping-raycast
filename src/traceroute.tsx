@@ -28,8 +28,11 @@ interface Arguments {
 // Detail view for one probe
 
 function formatTracerouteHopText(hop: TracerouteHop): string {
-  const host = hop.resolvedHostname || "—";
-  const ip = hop.resolvedAddress && hop.resolvedAddress !== host ? ` (${hop.resolvedAddress})` : "";
+  const host = hop.resolvedHostname || hop.resolvedAddress || "—";
+  const ip =
+    hop.resolvedHostname && hop.resolvedAddress && hop.resolvedAddress !== hop.resolvedHostname
+      ? ` (${hop.resolvedAddress})`
+      : "";
   const timings = hop.timings?.map((timing) => `${timing.rtt} ms`).join(" / ") || "—";
   return `${host}${ip} - ${timings}`;
 }

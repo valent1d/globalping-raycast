@@ -3,6 +3,9 @@ import type { ProbeLocation, DnsAnswer, HttpResult, MtrHop, MtrResult, Tracerout
 
 // Probe labels
 
+/**
+ * Returns a flag image URL for a two-letter country code, with a globe fallback.
+ */
 export function getCountryFlagIcon(countryCode: string): Image.ImageLike {
   const normalizedCode = countryCode.trim().toLowerCase();
 
@@ -16,24 +19,39 @@ export function getCountryFlagIcon(countryCode: string): Image.ImageLike {
   };
 }
 
+/**
+ * Returns the flag icon used for a probe in lists and detail views.
+ */
 export function getProbeFlagIcon(probe: ProbeLocation): Image.ImageLike {
   return getCountryFlagIcon(probe.country);
 }
 
+/**
+ * Formats a probe location as `City, CountryCode`.
+ */
 export function formatProbeLabel(probe: ProbeLocation): string {
   return `${probe.city}, ${probe.country}`;
 }
 
+/**
+ * Returns the provider/network name shown alongside a probe.
+ */
 export function formatProbeSubtitle(probe: ProbeLocation): string {
   return probe.network;
 }
 
+/**
+ * Returns the primary list title for a probe entry.
+ */
 export function formatProbeListTitle(probe: ProbeLocation): string {
   return probe.network;
 }
 
 // Latency icon
 
+/**
+ * Maps an average latency value to the matching Raycast signal icon and color.
+ */
 export function getLatencyIcon(avg: number): { source: Icon; tintColor: Color } {
   if (avg <= 50) {
     return { source: Icon.Signal3, tintColor: Color.Green };
@@ -46,6 +64,9 @@ export function getLatencyIcon(avg: number): { source: Icon; tintColor: Color } 
 
 // HTTP status color
 
+/**
+ * Maps HTTP status codes to a compact success/warning/error color.
+ */
 export function getHttpStatusColor(statusCode: number): Color {
   if (statusCode < 300) return Color.Green;
   if (statusCode < 400) return Color.Yellow;
@@ -54,6 +75,9 @@ export function getHttpStatusColor(statusCode: number): Color {
 
 // DNS type color
 
+/**
+ * Assigns a stable tag color to each supported DNS record type.
+ */
 export function getDnsTypeColor(type: string): Color {
   switch (type?.toUpperCase()) {
     case "A":
@@ -77,6 +101,9 @@ export function getDnsTypeColor(type: string): Color {
 
 // Ping formatters
 
+/**
+ * Builds a markdown summary table for finished ping results across probes.
+ */
 export function formatResultsAsMarkdownTable(
   target: string,
   results: Array<{ probe: ProbeLocation; min?: number; max?: number; avg?: number; loss?: number }>,
@@ -99,6 +126,9 @@ export function formatResultsAsMarkdownTable(
   return `${header}\n${rows}`;
 }
 
+/**
+ * Builds a markdown summary table for finished DNS results across probes.
+ */
 export function formatDnsResultsAsMarkdownTable(
   target: string,
   queryType: string,
@@ -121,6 +151,9 @@ export function formatDnsResultsAsMarkdownTable(
 
 // HTTP formatters
 
+/**
+ * Formats one HTTP result as markdown for the detail export/copy action.
+ */
 export function formatHttpResultAsMarkdown(target: string, label: string, result: HttpResult): string {
   if (result.status === "failed") {
     const failureMessage = result.rawOutput?.trim() || "The probe could not complete the HTTP request.";
@@ -134,6 +167,9 @@ export function formatHttpResultAsMarkdown(target: string, label: string, result
   return `## HTTP: \`${target}\` — ${label}\n\n\`\`\`\n${result.rawOutput ?? ""}\n\`\`\``;
 }
 
+/**
+ * Builds a markdown summary table for finished HTTP probe results.
+ */
 export function formatHttpResultsAsMarkdownTable(
   target: string,
   results: Array<{ probe: ProbeLocation; statusCode?: number; timings?: HttpResult["timings"] }>,
@@ -160,6 +196,9 @@ export function formatHttpResultsAsMarkdownTable(
 
 // Traceroute formatters
 
+/**
+ * Formats one traceroute result as markdown, including hop-by-hop timings.
+ */
 export function formatTracerouteResultAsMarkdown(target: string, label: string, result: TracerouteResult): string {
   const hops = result.hops ?? [];
 
@@ -179,7 +218,7 @@ export function formatTracerouteResultAsMarkdown(target: string, label: string, 
   content += "| Host / IP | RTT |\n|---|---|\n";
   content += hops
     .map((hop) => {
-      const host = hop.resolvedHostname || "—";
+      const host = hop.resolvedHostname || hop.resolvedAddress || "—";
       const ip = hop.resolvedAddress && hop.resolvedAddress !== host ? ` (${hop.resolvedAddress})` : "";
       const timings = hop.timings?.map((timing) => `${timing.rtt} ms`).join(" / ") || "—";
       return `| ${host}${ip} | ${timings} |`;
@@ -199,6 +238,9 @@ export interface ParsedMtrRawRow {
   jAvg: string;
 }
 
+/**
+ * Parses CLI-style MTR raw output rows into structured cells used by UI and exports.
+ */
 export function parseMtrRawOutputRows(rawOutput?: string): ParsedMtrRawRow[] {
   if (!rawOutput) {
     return [];
@@ -231,6 +273,9 @@ function escapeMarkdownTableCell(value: string): string {
   return value.replace(/\|/g, "\\|");
 }
 
+/**
+ * Returns a host fallback for MTR rows when the raw output does not contain a parsed host column.
+ */
 export function getMtrFallbackHost(hop?: MtrHop): string {
   const asn = hop?.asn?.[0];
 
@@ -245,6 +290,9 @@ function formatMtrValue(value: number | undefined): string {
   return value != null ? String(value) : "—";
 }
 
+/**
+ * Formats one MTR result as a markdown table suitable for copy/export actions.
+ */
 export function formatMtrResultAsMarkdown(target: string, label: string, result: MtrResult): string {
   const hops = result.hops ?? [];
 
