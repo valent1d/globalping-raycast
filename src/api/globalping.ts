@@ -33,6 +33,9 @@ export interface ProbeLocation {
   network: string;
   latitude: number;
   longitude: number;
+  id?: string | number;
+  serverId?: string | number;
+  probeId?: string | number;
 }
 
 export interface PingResult {
@@ -131,6 +134,7 @@ export interface Measurement {
   status: MeasurementStatus;
   target: string;
   results: ProbeResult[];
+  resultKeys?: string[];
 }
 
 /**
@@ -152,9 +156,40 @@ export function getProbeResultBaseKey(probe: ProbeLocation): string {
 /**
  * Builds a unique probe key, appending an occurrence suffix when duplicates exist.
  */
-export function getProbeResultKey(probe: ProbeLocation, occurrenceIndex = 0): string {
+export function getProbeResultKey(probe: ProbeLocation, occurrenceIndex?: string | number): string {
   const baseKey = getProbeResultBaseKey(probe);
-  return occurrenceIndex === 0 ? baseKey : `${baseKey}#${occurrenceIndex}`;
+  if (occurrenceIndex === undefined) {
+    return baseKey;
+  }
+
+  if (typeof occurrenceIndex === "number" && occurrenceIndex === 0) {
+    return baseKey;
+  }
+
+  const suffix = String(occurrenceIndex).trim();
+  return suffix ? `${baseKey}#${suffix}` : baseKey;
+}
+
+/**
+ * Reads a stable server-side probe identifier when the API includes one.
+ */
+export function getProbeResultStableId(probe: ProbeLocation): string | undefined {
+  const candidateProbe = probe as ProbeLocation &
+    Partial<Record<"id" | "serverId" | "probeId", string | number | null | undefined>>;
+  const candidates = [candidateProbe.id, candidateProbe.serverId, candidateProbe.probeId];
+
+  for (const candidate of candidates) {
+    if (candidate === undefined || candidate === null) {
+      continue;
+    }
+
+    const stableId = String(candidate).trim();
+    if (stableId) {
+      return stableId;
+    }
+  }
+
+  return undefined;
 }
 
 /**
@@ -164,6 +199,11 @@ export function getProbeResultKeys(results: ProbeResult[]): string[] {
   const seenCounts = new Map<string, number>();
 
   return results.map((result) => {
+    const stableId = getProbeResultStableId(result.probe);
+    if (stableId) {
+      return getProbeResultKey(result.probe, stableId);
+    }
+
     const baseKey = getProbeResultBaseKey(result.probe);
     const occurrenceIndex = seenCounts.get(baseKey) ?? 0;
     seenCounts.set(baseKey, occurrenceIndex + 1);

@@ -48,7 +48,12 @@ function getDnsFailureMessage(result: DnsResult): string {
   const rawOutput = result.rawOutput?.trim();
 
   if (result.status === "failed" && rawOutput) {
-    return rawOutput.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim() ?? rawOutput;
+    return (
+      rawOutput
+        .split(/\r?\n/)
+        .find((line) => line.trim().length > 0)
+        ?.trim() ?? rawOutput
+    );
   }
 
   return (result.answers?.length ?? 0) === 0
@@ -305,14 +310,8 @@ function DnsCommand({
         </ActionPanel.Section>
         {measurement && (
           <ActionPanel.Section>
-            <Action.CopyToClipboard
-              title="Copy Results as Markdown"
-              content={markdownTable}
-            />
-            <Action.CopyToClipboard
-              title="Copy Share Link"
-              content={getShareUrl(measurement.id)}
-            />
+            <Action.CopyToClipboard title="Copy Results as Markdown" content={markdownTable} />
+            <Action.CopyToClipboard title="Copy Share Link" content={getShareUrl(measurement.id)} />
             <Action.CreateQuicklink
               title="Create Raycast Quicklink"
               icon={Icon.Star}
@@ -330,9 +329,13 @@ function DnsCommand({
   const currentCount = measurement?.results.length ?? 0;
   const pendingCount = isRunning ? Math.max(0, probeLimit - currentCount) : 0;
   const hasResults = isRunning || currentCount > 0;
-  const resultKeys = measurement ? getProbeResultKeys(measurement.results) : [];
+  const resultKeys = measurement ? (measurement.resultKeys ?? getProbeResultKeys(measurement.results)) : [];
   const selectedProbeResult =
-    measurement?.results.find((_, index) => resultKeys[index] === selectedItemId) ?? measurement?.results[0];
+    selectedItemId === null
+      ? measurement?.results[0]
+      : selectedItemId.startsWith("pending-")
+        ? undefined
+        : (measurement?.results.find((_, index) => resultKeys[index] === selectedItemId) ?? measurement?.results[0]);
   const actions = buildActions(selectedProbeResult);
   const detailTarget = submittedRequest?.target ?? target;
 

@@ -114,7 +114,9 @@ function ProbeDetail({ probeResult }: { probeResult: ProbeResult }) {
         <List.Item.Detail.Metadata>
           <List.Item.Detail.Metadata.Label title="Location" text={label} icon={getProbeFlagIcon(probe)} />
           <List.Item.Detail.Metadata.Label title="Network" text={formatPingProviderName(formatProbeSubtitle(probe))} />
-          {result.resolvedAddress && <List.Item.Detail.Metadata.Label title="IP" text={formatPingIpAddress(result.resolvedAddress)} />}
+          {result.resolvedAddress && (
+            <List.Item.Detail.Metadata.Label title="IP" text={formatPingIpAddress(result.resolvedAddress)} />
+          )}
           {result.resolvedHostname && result.resolvedHostname !== result.resolvedAddress && (
             <List.Item.Detail.Metadata.Label title="Hostname" text={result.resolvedHostname} />
           )}
@@ -258,10 +260,7 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
               content={markdownTable}
               shortcut={Keyboard.Shortcut.Common.Copy}
             />
-            <Action.CopyToClipboard
-              title="Copy Share Link"
-              content={getShareUrl(measurement.id)}
-            />
+            <Action.CopyToClipboard title="Copy Share Link" content={getShareUrl(measurement.id)} />
             <Action.CreateQuicklink
               title="Create Raycast Quicklink"
               icon={Icon.Star}
@@ -279,7 +278,7 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
   const currentCount = measurement?.results.length ?? 0;
   const pendingCount = isRunning ? Math.max(0, probeLimit - currentCount) : 0;
   const hasItems = currentCount > 0 || pendingCount > 0;
-  const resultKeys = measurement ? getProbeResultKeys(measurement.results) : [];
+  const resultKeys = measurement ? (measurement.resultKeys ?? getProbeResultKeys(measurement.results)) : [];
   const actions = buildActions();
 
   return (

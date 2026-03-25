@@ -163,7 +163,7 @@ function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target
 
   return (
     <List.Item.Detail
-      markdown={failed ? undefined : inProgress ? hopMarkdown ?? "*Running MTR…*" : hopMarkdown}
+      markdown={failed ? undefined : inProgress ? (hopMarkdown ?? "*Running MTR…*") : hopMarkdown}
       metadata={
         <List.Item.Detail.Metadata>
           <List.Item.Detail.Metadata.Label title="Target" text={target} />
@@ -184,7 +184,10 @@ function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target
             <>
               <List.Item.Detail.Metadata.Label title="Status" text="Finished" />
               <List.Item.Detail.Metadata.Label title="Hops" text={String(hops.length)} />
-              <List.Item.Detail.Metadata.Label title="Last hop avg" text={lastHopAvg != null ? `${lastHopAvg} ms` : "—"} />
+              <List.Item.Detail.Metadata.Label
+                title="Last hop avg"
+                text={lastHopAvg != null ? `${lastHopAvg} ms` : "—"}
+              />
               <List.Item.Detail.Metadata.Label
                 title="Last hop loss"
                 text={lastHopLoss != null ? `${lastHopLoss}%` : "—"}
@@ -287,10 +290,7 @@ function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: 
               content={markdownResults}
               shortcut={Keyboard.Shortcut.Common.Copy}
             />
-            <Action.CopyToClipboard
-              title="Copy Share Link"
-              content={getShareUrl(measurement.id)}
-            />
+            <Action.CopyToClipboard title="Copy Share Link" content={getShareUrl(measurement.id)} />
             <Action.CreateQuicklink
               title="Create Raycast Quicklink"
               icon={Icon.Star}
@@ -308,7 +308,7 @@ function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: 
   const currentCount = measurement?.results.length ?? 0;
   const pendingCount = isRunning ? Math.max(0, probeLimit - currentCount) : 0;
   const hasResults = isRunning || currentCount > 0;
-  const resultKeys = measurement ? getProbeResultKeys(measurement.results) : [];
+  const resultKeys = measurement ? (measurement.resultKeys ?? getProbeResultKeys(measurement.results)) : [];
   const actions = buildActions();
   const detailTarget = submittedRequest?.target ?? target;
 

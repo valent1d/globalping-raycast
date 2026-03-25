@@ -253,10 +253,7 @@ function HttpCommand({
               content={markdownContent}
               shortcut={Keyboard.Shortcut.Common.Copy}
             />
-            <Action.CopyToClipboard
-              title="Copy Share Link"
-              content={getShareUrl(measurement.id)}
-            />
+            <Action.CopyToClipboard title="Copy Share Link" content={getShareUrl(measurement.id)} />
             <Action.CreateQuicklink
               title="Create Raycast Quicklink"
               icon={Icon.Star}
@@ -274,7 +271,7 @@ function HttpCommand({
   const currentCount = measurement?.results.length ?? 0;
   const pendingCount = isRunning ? Math.max(0, probeLimit - currentCount) : 0;
   const hasResults = isRunning || currentCount > 0;
-  const resultKeys = measurement ? getProbeResultKeys(measurement.results) : [];
+  const resultKeys = measurement ? (measurement.resultKeys ?? getProbeResultKeys(measurement.results)) : [];
   const actions = buildActions();
   const detailTarget = submittedRequest?.target ?? target;
 

@@ -4,9 +4,13 @@ import {
   createMeasurement,
   getGlobalpingErrorDisplay,
   getMeasurement,
+  getProbeResultBaseKey,
   getProbeResultKeys,
+  getProbeResultKey,
+  getProbeResultStableId,
   type Measurement,
   type MeasurementPayload,
+  type ProbeResult,
 } from "../api/globalping";
 import { incrementLocationStat } from "../utils/storage";
 
@@ -15,6 +19,74 @@ import { incrementLocationStat } from "../utils/storage";
  */
 function isAbortError(e: unknown): boolean {
   return e instanceof Error && (e.name === "AbortError" || e.message === "The operation was aborted.");
+}
+
+/**
+ * Reuses previously assigned duplicate suffixes when probe results have no stable server id.
+ */
+function resolveProbeResultKeys(previous: Measurement | null, nextResults: ProbeResult[]): string[] {
+  const previousResults = previous?.results ?? [];
+  const previousKeys = previous?.resultKeys ?? getProbeResultKeys(previousResults);
+  const reusableKeysByBaseKey = new Map<string, string[]>();
+  const usedOccurrenceIndexesByBaseKey = new Map<string, Set<number>>();
+
+  for (const [index, result] of previousResults.entries()) {
+    if (getProbeResultStableId(result.probe)) {
+      continue;
+    }
+
+    const key = previousKeys[index];
+    if (!key) {
+      continue;
+    }
+
+    const baseKey = getProbeResultBaseKey(result.probe);
+    const reusableKeys = reusableKeysByBaseKey.get(baseKey) ?? [];
+    reusableKeys.push(key);
+    reusableKeysByBaseKey.set(baseKey, reusableKeys);
+
+    const usedIndexes = usedOccurrenceIndexesByBaseKey.get(baseKey) ?? new Set<number>();
+    usedIndexes.add(getProbeResultOccurrenceIndex(key, baseKey));
+    usedOccurrenceIndexesByBaseKey.set(baseKey, usedIndexes);
+  }
+
+  return nextResults.map((result) => {
+    const stableId = getProbeResultStableId(result.probe);
+    if (stableId) {
+      return getProbeResultKey(result.probe, stableId);
+    }
+
+    const baseKey = getProbeResultBaseKey(result.probe);
+    const reusableKeys = reusableKeysByBaseKey.get(baseKey);
+    const reusedKey = reusableKeys?.shift();
+    if (reusedKey) {
+      return reusedKey;
+    }
+
+    const usedIndexes = usedOccurrenceIndexesByBaseKey.get(baseKey) ?? new Set<number>();
+    let occurrenceIndex = 0;
+    while (usedIndexes.has(occurrenceIndex)) {
+      occurrenceIndex += 1;
+    }
+    usedIndexes.add(occurrenceIndex);
+    usedOccurrenceIndexesByBaseKey.set(baseKey, usedIndexes);
+    return getProbeResultKey(result.probe, occurrenceIndex);
+  });
+}
+
+function getProbeResultOccurrenceIndex(key: string, baseKey: string): number {
+  if (key === baseKey) {
+    return 0;
+  }
+
+  const prefix = `${baseKey}#`;
+  if (!key.startsWith(prefix)) {
+    return 0;
+  }
+
+  const suffix = key.slice(prefix.length);
+  const occurrenceIndex = Number.parseInt(suffix, 10);
+  return Number.isInteger(occurrenceIndex) && String(occurrenceIndex) === suffix ? occurrenceIndex : 0;
 }
 
 /**
@@ -70,11 +142,11 @@ export function useMeasurement() {
    */
   function mergeMeasurementResults(previous: Measurement | null, next: Measurement): Measurement {
     if (!previous || previous.id !== next.id) {
-      return next;
+      return { ...next, resultKeys: getProbeResultKeys(next.results) };
     }
 
-    const previousKeys = getProbeResultKeys(previous.results);
-    const nextKeys = getProbeResultKeys(next.results);
+    const previousKeys = previous.resultKeys ?? getProbeResultKeys(previous.results);
+    const nextKeys = resolveProbeResultKeys(previous, next.results);
     const mergedByKey = new Map(previous.results.map((result, index) => [previousKeys[index], result]));
 
     for (const [index, result] of next.results.entries()) {
@@ -82,18 +154,22 @@ export function useMeasurement() {
     }
 
     const nextOrder = new Set(nextKeys);
-    const carryForwardResults =
+    const carryForwardEntries =
       next.status === "in-progress"
-        ? previous.results.filter((_, index) => !nextOrder.has(previousKeys[index]))
-        : previous.results.filter((result, index) => {
-            const previousKey = previousKeys[index];
-            return !nextOrder.has(previousKey) && result.result.status !== "in-progress";
-          });
-    const mergedResults = [...next.results, ...carryForwardResults];
-    const mergedResultsKeys = getProbeResultKeys(mergedResults);
+        ? previous.results
+            .map((result, index) => ({ key: previousKeys[index], result }))
+            .filter(({ key }) => !nextOrder.has(key))
+        : previous.results
+            .map((result, index) => ({ key: previousKeys[index], result }))
+            .filter(({ key, result }) => {
+              return !nextOrder.has(key) && result.result.status !== "in-progress";
+            });
+    const mergedResults = [...next.results, ...carryForwardEntries.map(({ result }) => result)];
+    const mergedResultsKeys = [...nextKeys, ...carryForwardEntries.map(({ key }) => key)];
 
     return {
       ...next,
+      resultKeys: mergedResultsKeys,
       results: mergedResults.map((result, index) => mergedByKey.get(mergedResultsKeys[index]) ?? result),
     };
   }
@@ -224,6 +300,7 @@ export function useMeasurement() {
         status: "in-progress",
         target: payload.target,
         results: [],
+        resultKeys: [],
       });
       setMeasurementId(id);
       const firstLocation = payload.locations[0];

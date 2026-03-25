@@ -102,7 +102,9 @@ function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target
           )}
           {!failed && hops.length > 0 && <List.Item.Detail.Metadata.Separator />}
           {!failed &&
-            hopPreview.map((hop) => <List.Item.Detail.Metadata.Label key={`${hop.title}-${hop.text}`} title={hop.title} text={hop.text} />)}
+            hopPreview.map((hop) => (
+              <List.Item.Detail.Metadata.Label key={`${hop.title}-${hop.text}`} title={hop.title} text={hop.text} />
+            ))}
         </List.Item.Detail.Metadata>
       }
     />
@@ -204,10 +206,7 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
               content={markdownOutputs}
               shortcut={Keyboard.Shortcut.Common.Copy}
             />
-            <Action.CopyToClipboard
-              title="Copy Share Link"
-              content={getShareUrl(measurement.id)}
-            />
+            <Action.CopyToClipboard title="Copy Share Link" content={getShareUrl(measurement.id)} />
             <Action.CreateQuicklink
               title="Create Raycast Quicklink"
               icon={Icon.Star}
@@ -225,7 +224,7 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
   const currentCount = measurement?.results.length ?? 0;
   const pendingCount = isRunning ? Math.max(0, probeLimit - currentCount) : 0;
   const hasResults = isRunning || currentCount > 0;
-  const resultKeys = measurement ? getProbeResultKeys(measurement.results) : [];
+  const resultKeys = measurement ? (measurement.resultKeys ?? getProbeResultKeys(measurement.results)) : [];
   const actions = buildActions();
   const detailTarget = submittedRequest?.target ?? target;
 
