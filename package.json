@@ -3,7 +3,7 @@
   "name": "globalping",
   "title": "Globalping",
   "description": "Run ping, traceroute, MTR, DNS and HTTP tests from 3700+ probes distributed worldwide. Powered by the Globalping network.",
-  "icon": "extension-icon.png",
+  "icon": "globalping.png",
   "author": "valentin_denis",
   "owner": "globalping",
   "access": "public",
@@ -16,14 +16,6 @@
   ],
   "license": "MIT",
   "preferences": [
-    {
-      "name": "apiToken",
-      "title": "API Token",
-      "description": "Optional — get a free token at dash.globalping.io to unlock 500 tests/hour and 500 probes/test (vs 250/50 without).",
-      "type": "password",
-      "required": false,
-      "placeholder": "your_api_token_here"
-    },
     {
       "name": "probeCount",
       "title": "Default Probe Count",
@@ -180,11 +172,13 @@
   ],
   "allowedNetworkHosts": [
     "api.globalping.io",
-    "flagcdn.com"
+    "auth.globalping.io",
+    "cdn.jsdelivr.net"
   ],
   "dependencies": {
     "@raycast/api": "^1.104.11",
-    "@raycast/utils": "^2.2.3"
+    "@raycast/utils": "^2.2.3",
+    "globalping": "^0.2.0"
   },
   "devDependencies": {
     "@raycast/eslint-config": "^2.0.4",

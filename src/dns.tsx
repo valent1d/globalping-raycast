@@ -1,6 +1,17 @@
 import { useState, useEffect, useRef } from "react";
 import { Action, ActionPanel, Color, Icon, Keyboard, LaunchProps, List, showToast, Toast } from "@raycast/api";
-import { getProbeResultKeys, getShareUrl, type ProbeResult, type DnsResult, type DnsAnswer } from "./api/globalping";
+import { getAccessToken, withAccessToken } from "@raycast/utils";
+import {
+  DnsQueryType,
+  MeasurementType,
+  getProbeResultKeys,
+  getShareUrl,
+  type ProbeResult,
+  type DnsResult,
+  type DnsAnswer,
+} from "./api/globalping";
+import { globalpingOAuth } from "./oauth";
+import { EditLocationAction } from "./components/LocationPicker";
 import {
   getProbeFlagIcon,
   formatProbeLabel,
@@ -11,8 +22,8 @@ import {
 } from "./utils/formatters";
 import { getProbeLimitPreference } from "./utils/preferences";
 import { createDnsQuicklink } from "./utils/quicklinks";
-import { getRefreshActionHint } from "./utils/shortcuts";
-import { useLocations } from "./hooks/useLocations";
+import { getCurrentLocationHint, getRefreshActionHint } from "./utils/shortcuts";
+import { useRecentLocations } from "./hooks/useLocationDirectory";
 import { useMeasurement } from "./hooks/useMeasurement";
 
 interface Arguments {
@@ -24,7 +35,37 @@ interface Arguments {
 interface SubmittedDnsRequest {
   target: string;
   from: string;
-  queryType: string;
+  queryType: SupportedDnsQueryType;
+}
+
+const SUPPORTED_DNS_QUERY_TYPES = [
+  DnsQueryType.A,
+  DnsQueryType.AAAA,
+  DnsQueryType.ANY,
+  DnsQueryType.CNAME,
+  DnsQueryType.DNSKEY,
+  DnsQueryType.DS,
+  DnsQueryType.HTTPS,
+  DnsQueryType.MX,
+  DnsQueryType.NS,
+  DnsQueryType.NSEC,
+  DnsQueryType.PTR,
+  DnsQueryType.RRSIG,
+  DnsQueryType.SOA,
+  DnsQueryType.SRV,
+  DnsQueryType.SVCB,
+  DnsQueryType.TXT,
+] as const;
+
+type SupportedDnsQueryType = (typeof SUPPORTED_DNS_QUERY_TYPES)[number];
+
+/**
+ * Restricts incoming DNS arguments to the record types supported by the Globalping API.
+ */
+function normalizeDnsQueryType(queryType?: string): SupportedDnsQueryType {
+  const normalizedQueryType = queryType?.toUpperCase();
+
+  return SUPPORTED_DNS_QUERY_TYPES.find((supportedType) => supportedType === normalizedQueryType) ?? DnsQueryType.A;
 }
 
 /**
@@ -47,7 +88,7 @@ function isDnsFailed(result: DnsResult): boolean {
 function getDnsFailureMessage(result: DnsResult): string {
   const rawOutput = result.rawOutput?.trim();
 
-  if (result.status === "failed" && rawOutput) {
+  if ((result.status === "failed" || result.status === "offline") && rawOutput) {
     return (
       rawOutput
         .split(/\r?\n/)
@@ -138,9 +179,12 @@ function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target
 
 // Main command
 
-export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
+function Command(props: LaunchProps<{ arguments: Arguments }>) {
+  const { token } = getAccessToken();
+
   return (
     <DnsCommand
+      authToken={token}
       initialTarget={props.arguments.target ?? ""}
       initialFrom={props.arguments.from?.trim() || ""}
       initialType={props.arguments.type ?? ""}
@@ -152,22 +196,24 @@ export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
  * Main Raycast command for running Globalping DNS lookups.
  */
 function DnsCommand({
+  authToken,
   initialTarget = "",
   initialFrom = "",
   initialType = "",
 }: {
+  authToken: string;
   initialTarget?: string;
   initialFrom?: string;
   initialType?: string;
 }) {
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);
-  const [queryType, setQueryType] = useState((initialType || "A").toUpperCase());
+  const [queryType, setQueryType] = useState<SupportedDnsQueryType>(normalizeDnsQueryType(initialType));
   const [submittedRequest, setSubmittedRequest] = useState<SubmittedDnsRequest | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const defaultProbeLimit = getProbeLimitPreference();
-  const { locationSections, preferredLocation, isLoading: isLocationsLoading } = useLocations();
-  const { measurement, isRunning, runTest, probeLimit } = useMeasurement();
+  const { recentLocations, preferredLocation, isLoading: isLocationsLoading } = useRecentLocations();
+  const { measurement, isRunning, runTest, probeLimit } = useMeasurement(authToken);
   const selectedFrom = from || preferredLocation || "world";
   const hasAutoRunRef = useRef(false);
 
@@ -183,34 +229,33 @@ function DnsCommand({
     }
 
     hasAutoRunRef.current = true;
-    void handleRun(initialTarget, initialFrom || preferredLocation || "world", initialType || "A");
+    void handleRun(initialTarget, initialFrom || preferredLocation || "world", normalizeDnsQueryType(initialType));
   }, [initialTarget, initialFrom, initialType, preferredLocation, isLocationsLoading]);
 
   // Run test
 
-  async function handleRun(t: string, f: string, qt: string) {
+  async function handleRun(t: string, f: string, qt: SupportedDnsQueryType) {
     const trimmedTarget = t.trim();
-    const normalizedQueryType = qt.toUpperCase();
 
     if (!trimmedTarget) {
       await showToast({ style: Toast.Style.Failure, title: "Target is required" });
       return;
     }
 
-    setSubmittedRequest({ target: trimmedTarget, from: f, queryType: normalizedQueryType });
+    setSubmittedRequest({ target: trimmedTarget, from: f, queryType: qt });
     await runTest(
       {
-        type: "dns",
+        type: MeasurementType.DNS,
         target: trimmedTarget,
         locations: [{ magic: f }],
         limit: defaultProbeLimit,
-        measurementOptions: { query: { type: normalizedQueryType } },
+        measurementOptions: { query: { type: qt } },
       },
-      `Resolving ${normalizedQueryType} ${trimmedTarget}…`,
+      `Resolving ${qt} ${trimmedTarget}…`,
     );
   }
 
-  async function applyQueryType(nextQueryType: string) {
+  async function applyQueryType(nextQueryType: SupportedDnsQueryType) {
     setQueryType(nextQueryType);
     if (target.trim()) {
       await handleRun(target, selectedFrom, nextQueryType);
@@ -244,6 +289,12 @@ function DnsCommand({
             shortcut={Keyboard.Shortcut.Common.Refresh}
             onAction={() => handleRun(target, selectedFrom, queryType)}
           />
+          <EditLocationAction
+            authToken={authToken}
+            currentValue={selectedFrom}
+            recentLocations={recentLocations}
+            onSelect={setFrom}
+          />
           {selectedAnswers.length > 0 && (
             <Action.CopyToClipboard
               title={selectedAnswers.length === 1 ? "Copy Answer" : "Copy Answers"}
@@ -260,7 +311,7 @@ function DnsCommand({
               macOS: { modifiers: ["cmd", "shift"], key: "a" },
               Windows: { modifiers: ["ctrl", "shift"], key: "a" },
             }}
-            onAction={() => applyQueryType("A")}
+            onAction={() => applyQueryType(DnsQueryType.A)}
           />
           <Action
             title="Select AAAA Record"
@@ -269,7 +320,7 @@ function DnsCommand({
               macOS: { modifiers: ["cmd", "shift"], key: "4" },
               Windows: { modifiers: ["ctrl", "shift"], key: "4" },
             }}
-            onAction={() => applyQueryType("AAAA")}
+            onAction={() => applyQueryType(DnsQueryType.AAAA)}
           />
           <Action
             title="Select TXT Record"
@@ -278,7 +329,7 @@ function DnsCommand({
               macOS: { modifiers: ["cmd", "shift"], key: "x" },
               Windows: { modifiers: ["ctrl", "shift"], key: "x" },
             }}
-            onAction={() => applyQueryType("TXT")}
+            onAction={() => applyQueryType(DnsQueryType.TXT)}
           />
           <Action
             title="Select MX Record"
@@ -287,7 +338,7 @@ function DnsCommand({
               macOS: { modifiers: ["cmd", "shift"], key: "m" },
               Windows: { modifiers: ["ctrl", "shift"], key: "m" },
             }}
-            onAction={() => applyQueryType("MX")}
+            onAction={() => applyQueryType(DnsQueryType.MX)}
           />
           <Action
             title="Select NS Record"
@@ -296,7 +347,7 @@ function DnsCommand({
               macOS: { modifiers: ["cmd", "shift"], key: "n" },
               Windows: { modifiers: ["ctrl", "shift"], key: "n" },
             }}
-            onAction={() => applyQueryType("NS")}
+            onAction={() => applyQueryType(DnsQueryType.NS)}
           />
           <Action
             title="Select CNAME Record"
@@ -305,7 +356,7 @@ function DnsCommand({
               macOS: { modifiers: ["cmd", "shift"], key: "c" },
               Windows: { modifiers: ["ctrl", "shift"], key: "c" },
             }}
-            onAction={() => applyQueryType("CNAME")}
+            onAction={() => applyQueryType(DnsQueryType.CNAME)}
           />
         </ActionPanel.Section>
         {measurement && (
@@ -341,6 +392,7 @@ function DnsCommand({
 
   return (
     <List
+      navigationTitle={`DNS from ${selectedFrom}`}
       isShowingDetail={hasResults}
       isLoading={isRunning}
       searchBarPlaceholder="Hostname (e.g. google.com)"
@@ -348,13 +400,13 @@ function DnsCommand({
       onSearchTextChange={setTarget}
       onSelectionChange={setSelectedItemId}
       searchBarAccessory={
-        <List.Dropdown tooltip="From" value={selectedFrom} onChange={setFrom}>
-          {locationSections.map((section) => (
-            <List.Dropdown.Section key={section.title} title={section.title}>
-              {section.items.map((item) => (
-                <List.Dropdown.Item key={item.value} title={item.title} value={item.value} />
-              ))}
-            </List.Dropdown.Section>
+        <List.Dropdown
+          tooltip="DNS Record Type"
+          value={queryType}
+          onChange={(value) => void applyQueryType(value as SupportedDnsQueryType)}
+        >
+          {SUPPORTED_DNS_QUERY_TYPES.map((supportedType) => (
+            <List.Dropdown.Item key={supportedType} title={supportedType} value={supportedType} />
           ))}
         </List.Dropdown>
       }
@@ -364,6 +416,7 @@ function DnsCommand({
       {!hasResults && (
         <List.EmptyView
           title={target ? getRefreshActionHint(`resolve ${target}`) : "Enter a hostname to get started"}
+          description={getCurrentLocationHint(selectedFrom)}
           icon={Icon.Network}
         />
       )}
@@ -422,3 +475,5 @@ function DnsCommand({
     </List>
   );
 }
+
+export default withAccessToken(globalpingOAuth)(Command);

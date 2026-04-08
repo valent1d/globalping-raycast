@@ -14,7 +14,7 @@ export function getCountryFlagIcon(countryCode: string): Image.ImageLike {
   }
 
   return {
-    source: `https://flagcdn.com/24x18/${normalizedCode}.png`,
+    source: `https://cdn.jsdelivr.net/npm/country-flag-icons@1.6.15/3x2/${normalizedCode.toUpperCase()}.svg`,
     fallback: Icon.Globe,
   };
 }
@@ -142,9 +142,7 @@ export function formatDnsResultsAsMarkdownTable(
       const location = escapeMarkdownTableCell(formatProbeLabel(r.probe));
       const network = escapeMarkdownTableCell(r.probe.network);
       const answers =
-        r.answers && r.answers.length > 0
-          ? escapeMarkdownTableCell(r.answers.map((a) => a.value).join(", "))
-          : "—";
+        r.answers && r.answers.length > 0 ? escapeMarkdownTableCell(r.answers.map((a) => a.value).join(", ")) : "—";
       return `| ${location} | ${network} | ${answers} |`;
     })
     .join("\n");
@@ -158,7 +156,7 @@ export function formatDnsResultsAsMarkdownTable(
  * Formats one HTTP result as markdown for the detail export/copy action.
  */
 export function formatHttpResultAsMarkdown(target: string, label: string, result: HttpResult): string {
-  if (result.status === "failed") {
+  if (result.status === "failed" || result.status === "offline") {
     const failureMessage = result.rawOutput?.trim() || "The probe could not complete the HTTP request.";
     return `## HTTP failed: \`${target}\` — ${label}\n\n\`\`\`\n${failureMessage}\n\`\`\``;
   }
@@ -207,7 +205,7 @@ export function formatTracerouteResultAsMarkdown(target: string, label: string, 
 
   let content = `## Traceroute: \`${target}\` — ${escapeMarkdownTableCell(label)}\n\n`;
 
-  if (result.status === "failed") {
+  if (result.status === "failed" || result.status === "offline") {
     const failureMessage = result.rawOutput?.trim() || "The probe could not complete the traceroute.";
     return `${content}\`\`\`\n${failureMessage}\n\`\`\``;
   }
@@ -307,7 +305,7 @@ export function formatMtrResultAsMarkdown(target: string, label: string, result:
 
   let content = `## MTR: \`${target}\` — ${label}\n\n`;
 
-  if (result.status === "failed") {
+  if (result.status === "failed" || result.status === "offline") {
     const failureMessage = result.rawOutput?.trim() || "The probe could not complete the MTR request.";
     return `${content}\`\`\`\n${failureMessage}\n\`\`\``;
   }

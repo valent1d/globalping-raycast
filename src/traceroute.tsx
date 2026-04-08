@@ -1,12 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 import { Action, ActionPanel, Color, Icon, Keyboard, LaunchProps, List, showToast, Toast } from "@raycast/api";
+import { getAccessToken, withAccessToken } from "@raycast/utils";
 import {
+  MeasurementType,
   getProbeResultKeys,
   getShareUrl,
   type ProbeResult,
   type TracerouteHop,
   type TracerouteResult,
 } from "./api/globalping";
+import { globalpingOAuth } from "./oauth";
+import { EditLocationAction } from "./components/LocationPicker";
 import {
   getProbeFlagIcon,
   formatProbeLabel,
@@ -16,8 +20,8 @@ import {
 } from "./utils/formatters";
 import { getProbeLimitPreference } from "./utils/preferences";
 import { createTracerouteQuicklink } from "./utils/quicklinks";
-import { getRefreshActionHint } from "./utils/shortcuts";
-import { useLocations } from "./hooks/useLocations";
+import { getCurrentLocationHint, getRefreshActionHint } from "./utils/shortcuts";
+import { useRecentLocations } from "./hooks/useLocationDirectory";
 import { useMeasurement } from "./hooks/useMeasurement";
 
 interface Arguments {
@@ -62,7 +66,7 @@ function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target
   const result = probeResult.result as TracerouteResult;
   const probe = probeResult.probe;
   const label = formatProbeLabel(probe);
-  const failed = result.status === "failed";
+  const failed = result.status === "failed" || result.status === "offline";
   const inProgress = result.status === "in-progress";
   const hops = result.hops ?? [];
   const lastHop = hops[hops.length - 1];
@@ -125,22 +129,36 @@ function getTracerouteFailureMessage(result: TracerouteResult): string {
 
 // Main command
 
-export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
+function Command(props: LaunchProps<{ arguments: Arguments }>) {
+  const { token } = getAccessToken();
+
   return (
-    <TracerouteCommand initialTarget={props.arguments.target ?? ""} initialFrom={props.arguments.from?.trim() || ""} />
+    <TracerouteCommand
+      authToken={token}
+      initialTarget={props.arguments.target ?? ""}
+      initialFrom={props.arguments.from?.trim() || ""}
+    />
   );
 }
 
 /**
  * Main Raycast command for running Globalping traceroute measurements.
  */
-function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: string; initialFrom?: string }) {
+function TracerouteCommand({
+  authToken,
+  initialTarget = "",
+  initialFrom = "",
+}: {
+  authToken: string;
+  initialTarget?: string;
+  initialFrom?: string;
+}) {
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);
   const [submittedRequest, setSubmittedRequest] = useState<SubmittedTracerouteRequest | null>(null);
   const defaultProbeLimit = getProbeLimitPreference();
-  const { locationSections, preferredLocation, isLoading: isLocationsLoading } = useLocations();
-  const { measurement, isRunning, runTest, probeLimit } = useMeasurement();
+  const { recentLocations, preferredLocation, isLoading: isLocationsLoading } = useRecentLocations();
+  const { measurement, isRunning, runTest, probeLimit } = useMeasurement(authToken);
   const selectedFrom = from || preferredLocation || "world";
   const hasAutoRunRef = useRef(false);
 
@@ -170,7 +188,7 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
     }
     setSubmittedRequest({ target: trimmedTarget, from: f });
     await runTest(
-      { type: "traceroute", target: trimmedTarget, locations: [{ magic: f }], limit: defaultProbeLimit },
+      { type: MeasurementType.TRACEROUTE, target: trimmedTarget, locations: [{ magic: f }], limit: defaultProbeLimit },
       `Traceroute to ${trimmedTarget}…`,
     );
   }
@@ -197,6 +215,12 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
             icon={Icon.Play}
             shortcut={Keyboard.Shortcut.Common.Refresh}
             onAction={() => handleRun(target, selectedFrom)}
+          />
+          <EditLocationAction
+            authToken={authToken}
+            currentValue={selectedFrom}
+            recentLocations={recentLocations}
+            onSelect={setFrom}
           />
         </ActionPanel.Section>
         {measurement && (
@@ -230,28 +254,19 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
 
   return (
     <List
+      navigationTitle={`Traceroute from ${selectedFrom}`}
       isShowingDetail={hasResults}
       isLoading={isRunning}
       searchBarPlaceholder="Target (e.g. google.com)"
       searchText={target}
       onSearchTextChange={setTarget}
-      searchBarAccessory={
-        <List.Dropdown tooltip="From" value={selectedFrom} onChange={setFrom}>
-          {locationSections.map((section) => (
-            <List.Dropdown.Section key={section.title} title={section.title}>
-              {section.items.map((item) => (
-                <List.Dropdown.Item key={item.value} title={item.title} value={item.value} />
-              ))}
-            </List.Dropdown.Section>
-          ))}
-        </List.Dropdown>
-      }
       actions={actions}
     >
       {isRunning && currentCount === 0 && <List.EmptyView title="Contacting probes…" icon={Icon.Clock} />}
       {!hasResults && (
         <List.EmptyView
           title={target ? getRefreshActionHint(`traceroute ${target}`) : "Enter a target to get started"}
+          description={getCurrentLocationHint(selectedFrom)}
           icon={Icon.Network}
         />
       )}
@@ -260,7 +275,7 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
         const result = probeResult.result as TracerouteResult;
         const label = formatProbeListTitle(probeResult.probe);
         const isFinished = result.status !== "in-progress";
-        const failed = result.status === "failed";
+        const failed = result.status === "failed" || result.status === "offline";
         const hopCount = result.hops?.length ?? 0;
 
         return (
@@ -301,3 +316,5 @@ function TracerouteCommand({ initialTarget = "", initialFrom = "" }: { initialTa
     </List>
   );
 }
+
+export default withAccessToken(globalpingOAuth)(Command);

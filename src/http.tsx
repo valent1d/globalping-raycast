@@ -1,6 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 import { Action, ActionPanel, Color, Icon, Keyboard, LaunchProps, List, showToast, Toast } from "@raycast/api";
-import { getProbeResultKeys, getShareUrl, type ProbeResult, type HttpResult } from "./api/globalping";
+import { getAccessToken, withAccessToken } from "@raycast/utils";
+import {
+  HttpRequestMethod,
+  MeasurementType,
+  getProbeResultKeys,
+  getShareUrl,
+  type ProbeResult,
+  type HttpResult,
+} from "./api/globalping";
+import { globalpingOAuth } from "./oauth";
+import { EditLocationAction } from "./components/LocationPicker";
 import {
   getProbeFlagIcon,
   formatProbeLabel,
@@ -12,8 +22,8 @@ import {
 } from "./utils/formatters";
 import { getProbeLimitPreference } from "./utils/preferences";
 import { createHttpQuicklink } from "./utils/quicklinks";
-import { getRefreshActionHint } from "./utils/shortcuts";
-import { useLocations } from "./hooks/useLocations";
+import { getCurrentLocationHint, getRefreshActionHint } from "./utils/shortcuts";
+import { useRecentLocations } from "./hooks/useLocationDirectory";
 import { useMeasurement } from "./hooks/useMeasurement";
 
 interface Arguments {
@@ -28,13 +38,13 @@ interface SubmittedHttpRequest {
   method: SupportedHttpMethod;
 }
 
-type SupportedHttpMethod = "HEAD" | "GET";
+type SupportedHttpMethod = typeof HttpRequestMethod.HEAD | typeof HttpRequestMethod.GET;
 
 /**
  * Restricts incoming HTTP method arguments to the methods supported by the extension.
  */
 function normalizeHttpMethod(method?: string): SupportedHttpMethod {
-  return method?.toUpperCase() === "GET" ? "GET" : "HEAD";
+  return method?.toUpperCase() === HttpRequestMethod.GET ? HttpRequestMethod.GET : HttpRequestMethod.HEAD;
 }
 
 /**
@@ -58,7 +68,7 @@ function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target
   const result = probeResult.result as HttpResult;
   const probe = probeResult.probe;
   const label = formatProbeLabel(probe);
-  const failed = result.status === "failed";
+  const failed = result.status === "failed" || result.status === "offline";
   const inProgress = result.status === "in-progress";
 
   return (
@@ -77,7 +87,10 @@ function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target
             <>
               <List.Item.Detail.Metadata.Label
                 title="Status"
-                text={{ value: String(result.statusCode), color: getHttpStatusColor(result.statusCode) }}
+                text={{
+                  value: result.statusCode != null ? String(result.statusCode) : "Finished",
+                  color: result.statusCode != null ? getHttpStatusColor(result.statusCode) : Color.SecondaryText,
+                }}
               />
               <List.Item.Detail.Metadata.Separator />
               <List.Item.Detail.Metadata.Label
@@ -114,9 +127,12 @@ function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target
 
 // Main command
 
-export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
+function Command(props: LaunchProps<{ arguments: Arguments }>) {
+  const { token } = getAccessToken();
+
   return (
     <HttpCommand
+      authToken={token}
       initialTarget={props.arguments.target ?? ""}
       initialFrom={props.arguments.from?.trim() || ""}
       initialMethod={props.arguments.method ?? ""}
@@ -128,10 +144,12 @@ export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
  * Main Raycast command for running Globalping HTTP measurements.
  */
 function HttpCommand({
+  authToken,
   initialTarget = "",
   initialFrom = "",
   initialMethod = "",
 }: {
+  authToken: string;
   initialTarget?: string;
   initialFrom?: string;
   initialMethod?: string;
@@ -141,8 +159,8 @@ function HttpCommand({
   const [method, setMethod] = useState<SupportedHttpMethod>(normalizeHttpMethod(initialMethod));
   const [submittedRequest, setSubmittedRequest] = useState<SubmittedHttpRequest | null>(null);
   const defaultProbeLimit = getProbeLimitPreference();
-  const { locationSections, preferredLocation, isLoading: isLocationsLoading } = useLocations();
-  const { measurement, isRunning, runTest, probeLimit } = useMeasurement();
+  const { recentLocations, preferredLocation, isLoading: isLocationsLoading } = useRecentLocations();
+  const { measurement, isRunning, runTest, probeLimit } = useMeasurement(authToken);
   const selectedFrom = from || preferredLocation || "world";
   const hasAutoRunRef = useRef(false);
 
@@ -174,7 +192,7 @@ function HttpCommand({
     setSubmittedRequest({ target: trimmedTarget, from: f, method: m });
     await runTest(
       {
-        type: "http",
+        type: MeasurementType.HTTP,
         target: trimmedTarget,
         locations: [{ magic: f }],
         limit: defaultProbeLimit,
@@ -225,6 +243,12 @@ function HttpCommand({
             shortcut={Keyboard.Shortcut.Common.Refresh}
             onAction={() => handleRun(target, selectedFrom, method)}
           />
+          <EditLocationAction
+            authToken={authToken}
+            currentValue={selectedFrom}
+            recentLocations={recentLocations}
+            onSelect={setFrom}
+          />
         </ActionPanel.Section>
         <ActionPanel.Section title="HTTP Methods">
           <Action
@@ -234,7 +258,7 @@ function HttpCommand({
               macOS: { modifiers: ["cmd", "shift"], key: "h" },
               Windows: { modifiers: ["ctrl", "shift"], key: "h" },
             }}
-            onAction={() => applyHttpMethod("HEAD")}
+            onAction={() => applyHttpMethod(HttpRequestMethod.HEAD)}
           />
           <Action
             title="Use GET"
@@ -243,7 +267,7 @@ function HttpCommand({
               macOS: { modifiers: ["cmd", "shift"], key: "g" },
               Windows: { modifiers: ["ctrl", "shift"], key: "g" },
             }}
-            onAction={() => applyHttpMethod("GET")}
+            onAction={() => applyHttpMethod(HttpRequestMethod.GET)}
           />
         </ActionPanel.Section>
         {measurement && (
@@ -277,20 +301,20 @@ function HttpCommand({
 
   return (
     <List
+      navigationTitle={`HTTP from ${selectedFrom}`}
       isShowingDetail={hasResults}
       isLoading={isRunning}
       searchBarPlaceholder="URL or hostname (e.g. https://google.com)"
       searchText={target}
       onSearchTextChange={setTarget}
       searchBarAccessory={
-        <List.Dropdown tooltip="From" value={selectedFrom} onChange={setFrom}>
-          {locationSections.map((section) => (
-            <List.Dropdown.Section key={section.title} title={section.title}>
-              {section.items.map((item) => (
-                <List.Dropdown.Item key={item.value} title={item.title} value={item.value} />
-              ))}
-            </List.Dropdown.Section>
-          ))}
+        <List.Dropdown
+          tooltip="HTTP Method"
+          value={method}
+          onChange={(value) => void applyHttpMethod(value as SupportedHttpMethod)}
+        >
+          <List.Dropdown.Item title={HttpRequestMethod.HEAD} value={HttpRequestMethod.HEAD} />
+          <List.Dropdown.Item title={HttpRequestMethod.GET} value={HttpRequestMethod.GET} />
         </List.Dropdown>
       }
       actions={actions}
@@ -299,6 +323,7 @@ function HttpCommand({
       {!hasResults && (
         <List.EmptyView
           title={target ? getRefreshActionHint(`${method} ${target}`) : "Enter a URL to get started"}
+          description={getCurrentLocationHint(selectedFrom)}
           icon={Icon.Globe}
         />
       )}
@@ -307,7 +332,7 @@ function HttpCommand({
         const result = probeResult.result as HttpResult;
         const label = formatProbeListTitle(probeResult.probe);
         const isFinished = result.status !== "in-progress";
-        const failed = result.status === "failed";
+        const failed = result.status === "failed" || result.status === "offline";
 
         return (
           <List.Item
@@ -353,3 +378,5 @@ function HttpCommand({
     </List>
   );
 }
+
+export default withAccessToken(globalpingOAuth)(Command);

@@ -1,8 +1,25 @@
-import { getPreferenceValues } from "@raycast/api";
-
-interface Preferences {
-  apiToken?: string;
-}
+import {
+  DnsQueryType as DnsQueryTypeEnum,
+  type FinishedDnsTestResult,
+  type FinishedHttpTestResult,
+  type FinishedMtrTestResult,
+  type FinishedPingTestResult,
+  type FinishedTracerouteTestResult,
+  Globalping,
+  HttpRequestMethod as HttpRequestMethodEnum,
+  MeasurementStatus as MeasurementStatusEnum,
+  MeasurementType as MeasurementTypeEnum,
+  type CreateMeasurementResponse,
+  type MeasurementLocationOption,
+  type MeasurementStatus as GlobalpingMeasurementStatus,
+  type MeasurementType as GlobalpingMeasurementType,
+  type Probe as GlobalpingProbe,
+  type ProbeLocation as GlobalpingProbeLocation,
+  type TestResult as GlobalpingRawTestResult,
+  type TypedMeasurementResponse,
+  type TypedMeasurementResultItem,
+  type TypedMeasurementRequest,
+} from "globalping";
 
 interface GlobalpingErrorPayload {
   error?: {
@@ -17,125 +34,54 @@ interface GlobalpingErrorPayload {
 
 // Types
 
-export type MeasurementType = "ping" | "traceroute" | "mtr" | "dns" | "http";
-export type MeasurementStatus = "in-progress" | "finished" | "failed";
+export { DnsQueryTypeEnum as DnsQueryType, HttpRequestMethodEnum as HttpRequestMethod };
+export { MeasurementStatusEnum as MeasurementStatus, MeasurementTypeEnum as MeasurementType };
 
-export interface Location {
+type MeasurementKind = GlobalpingMeasurementType;
+type MeasurementState = GlobalpingMeasurementStatus;
+export type TestStatus = GlobalpingRawTestResult["status"];
+type GlobalpingProbeResult<T extends MeasurementKind> = TypedMeasurementResultItem<T>;
+type SimpleDnsResult = Extract<FinishedDnsTestResult, { answers: unknown[] }>;
+type TraceDnsResult = Extract<FinishedDnsTestResult, { hops: unknown[] }>;
+type PingResultDetails = Omit<FinishedPingTestResult, "status" | "rawOutput" | "timings"> & {
+  timings: Array<{ rtt: number; ttl?: number }>;
+};
+type ResultBase = Pick<GlobalpingRawTestResult, "status" | "rawOutput">;
+type MeasurementFields<T extends MeasurementKind> = Pick<TypedMeasurementResponse<T>, "id" | "type" | "target"> & {
+  status: MeasurementState;
+} & Partial<Omit<TypedMeasurementResponse<T>, "id" | "type" | "status" | "target" | "results">>;
+
+export interface Location extends Pick<MeasurementLocationOption, "magic"> {
   magic: string;
 }
 
-export interface ProbeLocation {
-  continent: string;
-  region: string;
-  country: string;
-  city: string;
-  asn: number;
-  network: string;
-  latitude: number;
-  longitude: number;
+export interface ProbeLocation extends GlobalpingProbeLocation {
   id?: string | number;
   serverId?: string | number;
   probeId?: string | number;
 }
 
-export interface PingResult {
-  status: MeasurementStatus;
-  rawOutput: string;
-  resolvedAddress?: string;
-  resolvedHostname?: string;
-  timings: { ttl: number; rtt: number }[];
-  stats: {
-    min: number | null;
-    max: number | null;
-    avg: number | null;
-    loss: number | null;
-    total?: number;
-    rcv?: number;
-    drop?: number;
-  } | null;
-}
-
-export interface DnsAnswer {
-  name: string;
-  type: string;
-  ttl: number;
-  value: string;
-}
-
-export interface DnsResult {
-  status: MeasurementStatus;
-  rawOutput: string;
-  answers: DnsAnswer[];
-  timings: { total: number };
-}
-
-export interface HttpResult {
-  status: MeasurementStatus;
-  rawOutput: string;
-  rawHeaders: string;
-  rawBody: string;
-  statusCode: number;
-  headers: Record<string, string>;
-  timings: {
-    total: number;
-    download: number;
-    firstByte: number;
-    dns: number;
-    tls: number;
-    tcp: number;
-  };
-}
-
-export interface TracerouteHop {
-  resolvedHostname: string;
-  resolvedAddress: string;
-  timings: { rtt: number }[];
-}
-
-export interface TracerouteResult {
-  status: MeasurementStatus;
-  rawOutput: string;
-  hops: TracerouteHop[];
-}
-
-export interface MtrHop {
-  stats: {
-    min: number;
-    max: number;
-    avg: number;
-    loss: number;
-    rcv: number;
-    drop: number;
-    stDev: number;
-    jMin: number;
-    jMax: number;
-    jAvg: number;
-  };
-  asn: string[];
-  timings: { rtt: number }[];
-}
-
-export interface MtrResult {
-  status: MeasurementStatus;
-  rawOutput: string;
-  hops: MtrHop[];
-}
+export type PingResult = ResultBase & Partial<PingResultDetails>;
+export type DnsAnswer = Extract<FinishedDnsTestResult, { answers: unknown[] }>["answers"][number];
+export type DnsResult = ResultBase &
+  Partial<Omit<SimpleDnsResult, "status" | "rawOutput">> &
+  Partial<Omit<TraceDnsResult, "status" | "rawOutput">>;
+export type HttpResult = ResultBase & Partial<Omit<FinishedHttpTestResult, "status" | "rawOutput">>;
+export type TracerouteHop = FinishedTracerouteTestResult["hops"][number];
+export type TracerouteResult = ResultBase & Partial<Omit<FinishedTracerouteTestResult, "status" | "rawOutput">>;
+export type MtrHop = FinishedMtrTestResult["hops"][number];
+export type MtrResult = ResultBase & Partial<Omit<FinishedMtrTestResult, "status" | "rawOutput">>;
 
 export type TestResult = PingResult | DnsResult | HttpResult | TracerouteResult | MtrResult;
 
-export interface ProbeResult {
-  probe: ProbeLocation;
-  result: TestResult;
-}
+export type ProbeResult<T extends MeasurementKind = MeasurementKind> = Omit<GlobalpingProbeResult<T>, "probe"> & {
+  probe: ProbeLocation & GlobalpingProbeResult<T>["probe"];
+};
 
-export interface Measurement {
-  id: string;
-  type: MeasurementType;
-  status: MeasurementStatus;
-  target: string;
-  results: ProbeResult[];
+export type Measurement<T extends MeasurementKind = MeasurementKind> = MeasurementFields<T> & {
+  results: ProbeResult<T>[];
   resultKeys?: string[];
-}
+};
 
 /**
  * Builds the stable portion of a probe key from its location metadata.
@@ -213,30 +159,73 @@ export function getProbeResultKeys(results: ProbeResult[]): string[] {
 
 // Payload types
 
-export interface MeasurementPayload {
-  type: MeasurementType;
-  target: string;
-  locations: Location[];
-  limit?: number;
-  measurementOptions?: Record<string, unknown>;
-}
+export type MeasurementPayload = TypedMeasurementRequest;
 
 // Client
 
-const BASE_URL = "https://api.globalping.io/v1";
+const DEFAULT_TIMEOUT_MS = 30_000;
+const USER_AGENT = "globalping-raycast";
 
 /**
- * Builds the default request headers, including the optional API token.
+ * Builds a configured Globalping API client using the current authenticated Raycast session.
  */
-function getHeaders(): Record<string, string> {
-  const { apiToken } = getPreferenceValues<Preferences>();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (apiToken) {
-    headers["Authorization"] = `Bearer ${apiToken}`;
+function createClient(auth: string, timeout = DEFAULT_TIMEOUT_MS): Globalping<false> {
+  return new Globalping({
+    auth,
+    timeout,
+    throwApiErrors: false,
+    userAgent: USER_AGENT,
+  });
+}
+
+async function runClientRequest<T>(
+  authToken: string,
+  request: (client: Globalping<false>) => Promise<{ ok: boolean; response: Response; data: T | unknown }>,
+  options?: { signal?: AbortSignal; timeout?: number },
+): Promise<{ ok: boolean; response: Response; data: T | unknown }> {
+  const timeout = options?.timeout ?? DEFAULT_TIMEOUT_MS;
+  return raceWithSignal(request(createClient(authToken, timeout)), options?.signal);
+}
+
+/**
+ * Creates an AbortError compatible with the existing request lifecycle code.
+ */
+function createAbortError(): Error {
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+/**
+ * Preserves AbortSignal behavior even though the official client does not expose per-request cancellation.
+ */
+async function raceWithSignal<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) {
+    return promise;
   }
-  return headers;
+
+  if (signal.aborted) {
+    throw createAbortError();
+  }
+
+  return new Promise<T>((resolve, reject) => {
+    const handleAbort = () => {
+      reject(createAbortError());
+    };
+
+    signal.addEventListener("abort", handleAbort, { once: true });
+
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", handleAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", handleAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 export class GlobalpingApiError extends Error {
@@ -276,35 +265,36 @@ function formatValidationDetails(params?: Record<string, string>): string | unde
  */
 function getRetryAfterMessage(retryAfterHeader: string | null): string {
   if (!retryAfterHeader) {
-    return "Too many requests. Try again in a moment, or add an API token in Raycast preferences for higher limits.";
+    return "Too many requests. Try again in a moment.";
   }
 
   const retryAfterSeconds = Number.parseInt(retryAfterHeader, 10);
   if (Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0) {
-    return `Too many requests. Try again in ${retryAfterSeconds}s, or add an API token in Raycast preferences for higher limits.`;
+    return `Too many requests. Try again in ${retryAfterSeconds}s.`;
   }
 
-  return "Too many requests. Try again later, or add an API token in Raycast preferences for higher limits.";
+  return "Too many requests. Try again later.";
+}
+
+/**
+ * Normalizes structured API error payloads returned by the official client.
+ */
+function getErrorPayload(data: unknown): GlobalpingErrorPayload | undefined {
+  if (!data || typeof data !== "object") {
+    return undefined;
+  }
+
+  return data as GlobalpingErrorPayload;
 }
 
 /**
  * Parses an unsuccessful API response into a structured GlobalpingApiError.
  */
-async function parseErrorResponse(response: Response): Promise<GlobalpingApiError> {
-  let payload: GlobalpingErrorPayload | undefined;
-  let fallbackBodyText: string | undefined;
-
-  try {
-    const bodyText = await response.text();
-    fallbackBodyText = bodyText.trim() || undefined;
-
-    if (fallbackBodyText) {
-      payload = JSON.parse(fallbackBodyText) as GlobalpingErrorPayload;
-    }
-  } catch {
-    payload = undefined;
-  }
-
+function parseErrorResponse(
+  response: Response,
+  payload?: GlobalpingErrorPayload,
+  fallbackBodyText?: string,
+): GlobalpingApiError {
   const type = payload?.error?.type;
   const apiMessage = payload?.error?.message;
   const validationDetails = formatValidationDetails(payload?.error?.params);
@@ -322,10 +312,18 @@ async function parseErrorResponse(response: Response): Promise<GlobalpingApiErro
       });
     case 401:
       return new GlobalpingApiError({
-        title: "Invalid API token",
+        title: "Globalping login expired",
         status: response.status,
         type,
-        details: "The configured Globalping API token was rejected. Update it in Raycast preferences and try again.",
+        details: "Sign in to Globalping again and retry the measurement.",
+        documentationUrl: docsUrl,
+      });
+    case 403:
+      return new GlobalpingApiError({
+        title: "Globalping login expired",
+        status: response.status,
+        type,
+        details: "Sign in to Globalping again and retry the measurement.",
         documentationUrl: docsUrl,
       });
     case 404:
@@ -383,38 +381,37 @@ export function getGlobalpingErrorDisplay(error: unknown, fallbackTitle = "Globa
 }
 
 /**
- * Creates a new measurement and returns its Globalping id.
+ * Reads a successful payload or throws a normalized error for failed API calls.
  */
-export async function createMeasurement(payload: MeasurementPayload, signal?: AbortSignal): Promise<string> {
-  const response = await fetch(`${BASE_URL}/measurements`, {
-    method: "POST",
-    headers: getHeaders(),
-    body: JSON.stringify(payload),
-    signal,
-  });
-
-  if (!response.ok) {
-    throw await parseErrorResponse(response);
+function unwrapResult<T>(result: { ok: boolean; response: Response; data: T | unknown }): T {
+  if (result.ok) {
+    return result.data as T;
   }
 
-  const data = (await response.json()) as { id: string };
+  const payload = getErrorPayload(result.data);
+  const fallbackBodyText = typeof result.data === "string" ? result.data : undefined;
+  throw parseErrorResponse(result.response, payload, fallbackBodyText);
+}
+
+/**
+ * Creates a new measurement and returns its Globalping id.
+ */
+export async function createMeasurement(
+  authToken: string,
+  payload: MeasurementPayload,
+  signal?: AbortSignal,
+): Promise<string> {
+  const result = await runClientRequest(authToken, (client) => client.createMeasurement(payload), { signal });
+  const data = unwrapResult<CreateMeasurementResponse>(result);
   return data.id;
 }
 
 /**
  * Fetches the latest state for an existing measurement.
  */
-export async function getMeasurement(id: string, signal?: AbortSignal): Promise<Measurement> {
-  const response = await fetch(`${BASE_URL}/measurements/${id}`, {
-    headers: getHeaders(),
-    signal,
-  });
-
-  if (!response.ok) {
-    throw await parseErrorResponse(response);
-  }
-
-  return response.json() as Promise<Measurement>;
+export async function getMeasurement(authToken: string, id: string, signal?: AbortSignal): Promise<Measurement> {
+  const result = await runClientRequest(authToken, (client) => client.getMeasurement(id), { signal });
+  return unwrapResult<Measurement>(result);
 }
 
 /**
@@ -426,35 +423,12 @@ export function getShareUrl(id: string): string {
 
 // Probes
 
-export interface Probe {
-  version: string;
-  location: {
-    continent: string;
-    region: string;
-    country: string;
-    state?: string;
-    city: string;
-    asn: number;
-    network: string;
-    latitude: number;
-    longitude: number;
-  };
-  tags: string[];
-  resolvers: string[];
-}
+export type Probe = GlobalpingProbe;
 
 /**
  * Fetches the full probe catalogue used to build location suggestions.
  */
-export async function getProbes(signal?: AbortSignal): Promise<Probe[]> {
-  const response = await fetch(`${BASE_URL}/probes`, {
-    headers: getHeaders(),
-    signal,
-  });
-
-  if (!response.ok) {
-    throw await parseErrorResponse(response);
-  }
-
-  return response.json() as Promise<Probe[]>;
+export async function getProbes(authToken: string, signal?: AbortSignal): Promise<Probe[]> {
+  const result = await runClientRequest(authToken, (client) => client.listProbes(), { signal });
+  return unwrapResult<Probe[]>(result);
 }

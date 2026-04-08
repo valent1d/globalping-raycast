@@ -1,6 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { Action, ActionPanel, Color, Icon, Keyboard, LaunchProps, List, showToast, Toast } from "@raycast/api";
-import { getProbeResultKeys, getShareUrl, type ProbeResult, type MtrResult } from "./api/globalping";
+import { getAccessToken, withAccessToken } from "@raycast/utils";
+import { MeasurementType, getProbeResultKeys, getShareUrl, type ProbeResult, type MtrResult } from "./api/globalping";
+import { globalpingOAuth } from "./oauth";
+import { EditLocationAction } from "./components/LocationPicker";
 import {
   formatMtrResultAsMarkdown,
   getMtrFallbackHost,
@@ -12,8 +15,8 @@ import {
 } from "./utils/formatters";
 import { getProbeLimitPreference } from "./utils/preferences";
 import { createMtrQuicklink } from "./utils/quicklinks";
-import { getRefreshActionHint } from "./utils/shortcuts";
-import { useLocations } from "./hooks/useLocations";
+import { getCurrentLocationHint, getRefreshActionHint } from "./utils/shortcuts";
+import { useRecentLocations } from "./hooks/useLocationDirectory";
 import { useMeasurement } from "./hooks/useMeasurement";
 
 interface Arguments {
@@ -153,7 +156,7 @@ function ProbeDetail({ probeResult, target }: { probeResult: ProbeResult; target
   const result = probeResult.result as MtrResult;
   const probe = probeResult.probe;
   const label = formatProbeLabel(probe);
-  const failed = result.status === "failed";
+  const failed = result.status === "failed" || result.status === "offline";
   const inProgress = result.status === "in-progress";
   const hops = result.hops ?? [];
   const lastHop = hops[hops.length - 1];
@@ -214,20 +217,36 @@ function getMtrFailureMessage(result: MtrResult): string {
 
 // Main command
 
-export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
-  return <MtrCommand initialTarget={props.arguments.target ?? ""} initialFrom={props.arguments.from?.trim() || ""} />;
+function Command(props: LaunchProps<{ arguments: Arguments }>) {
+  const { token } = getAccessToken();
+
+  return (
+    <MtrCommand
+      authToken={token}
+      initialTarget={props.arguments.target ?? ""}
+      initialFrom={props.arguments.from?.trim() || ""}
+    />
+  );
 }
 
 /**
  * Main Raycast command for running Globalping MTR measurements.
  */
-function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: string; initialFrom?: string }) {
+function MtrCommand({
+  authToken,
+  initialTarget = "",
+  initialFrom = "",
+}: {
+  authToken: string;
+  initialTarget?: string;
+  initialFrom?: string;
+}) {
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);
   const [submittedRequest, setSubmittedRequest] = useState<SubmittedMtrRequest | null>(null);
   const defaultProbeLimit = getProbeLimitPreference();
-  const { locationSections, preferredLocation, isLoading: isLocationsLoading } = useLocations();
-  const { measurement, isRunning, runTest, probeLimit } = useMeasurement();
+  const { recentLocations, preferredLocation, isLoading: isLocationsLoading } = useRecentLocations();
+  const { measurement, isRunning, runTest, probeLimit } = useMeasurement(authToken);
   const selectedFrom = from || preferredLocation || "world";
   const hasAutoRunRef = useRef(false);
 
@@ -257,7 +276,7 @@ function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: 
     }
     setSubmittedRequest({ target: trimmedTarget, from: f });
     await runTest(
-      { type: "mtr", target: trimmedTarget, locations: [{ magic: f }], limit: defaultProbeLimit },
+      { type: MeasurementType.MTR, target: trimmedTarget, locations: [{ magic: f }], limit: defaultProbeLimit },
       `MTR to ${trimmedTarget}…`,
     );
   }
@@ -281,6 +300,12 @@ function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: 
             icon={Icon.Play}
             shortcut={Keyboard.Shortcut.Common.Refresh}
             onAction={() => handleRun(target, selectedFrom)}
+          />
+          <EditLocationAction
+            authToken={authToken}
+            currentValue={selectedFrom}
+            recentLocations={recentLocations}
+            onSelect={setFrom}
           />
         </ActionPanel.Section>
         {measurement && (
@@ -314,28 +339,19 @@ function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: 
 
   return (
     <List
+      navigationTitle={`MTR from ${selectedFrom}`}
       isShowingDetail={hasResults}
       isLoading={isRunning}
       searchBarPlaceholder="Target (e.g. google.com)"
       searchText={target}
       onSearchTextChange={setTarget}
-      searchBarAccessory={
-        <List.Dropdown tooltip="From" value={selectedFrom} onChange={setFrom}>
-          {locationSections.map((section) => (
-            <List.Dropdown.Section key={section.title} title={section.title}>
-              {section.items.map((item) => (
-                <List.Dropdown.Item key={item.value} title={item.title} value={item.value} />
-              ))}
-            </List.Dropdown.Section>
-          ))}
-        </List.Dropdown>
-      }
       actions={actions}
     >
       {isRunning && currentCount === 0 && <List.EmptyView title="Contacting probes…" icon={Icon.Clock} />}
       {!hasResults && (
         <List.EmptyView
           title={target ? getRefreshActionHint(`run an MTR test for ${target}`) : "Enter a target to get started"}
+          description={getCurrentLocationHint(selectedFrom)}
           icon={Icon.Network}
         />
       )}
@@ -344,7 +360,7 @@ function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: 
         const result = probeResult.result as MtrResult;
         const label = formatProbeListTitle(probeResult.probe);
         const isFinished = result.status !== "in-progress";
-        const failed = result.status === "failed";
+        const failed = result.status === "failed" || result.status === "offline";
         const hopCount = result.hops?.length ?? 0;
         const lastHopAvg = result.hops?.[result.hops.length - 1]?.stats?.avg;
 
@@ -386,3 +402,5 @@ function MtrCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: 
     </List>
   );
 }
+
+export default withAccessToken(globalpingOAuth)(Command);

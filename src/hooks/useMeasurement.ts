@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { showToast, Toast } from "@raycast/api";
 import {
+  MeasurementStatus,
+  MeasurementType,
   createMeasurement,
   getGlobalpingErrorDisplay,
   getMeasurement,
@@ -99,7 +101,7 @@ function getProbeResultOccurrenceIndex(key: string, baseKey: string): number {
 /**
  * Starts measurements, polls Globalping for updates, and merges incremental probe results.
  */
-export function useMeasurement() {
+export function useMeasurement(authToken: string) {
   const [measurement, setMeasurement] = useState<Measurement | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [measurementId, setMeasurementId] = useState<string | null>(null);
@@ -107,7 +109,6 @@ export function useMeasurement() {
 
   const pollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetchingRef = useRef(false);
-  const isCreatingRef = useRef(false);
   const toastRef = useRef<Awaited<ReturnType<typeof showToast>> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const createAbortControllerRef = useRef<AbortController | null>(null);
@@ -117,8 +118,9 @@ export function useMeasurement() {
    * Computes a polling timeout based on command type and requested probe count.
    */
   function getPollingTimeoutMs(type: Measurement["type"] | null, limit: number): number {
-    const baseTimeoutMs = type === "mtr" || type === "traceroute" ? 45_000 : 30_000;
-    const perProbeTimeoutMs = (type === "mtr" || type === "traceroute" ? 1_200 : 700) * Math.max(limit, 1);
+    const isLongRunningMeasurement = type === MeasurementType.MTR || type === MeasurementType.TRACEROUTE;
+    const baseTimeoutMs = isLongRunningMeasurement ? 45_000 : 30_000;
+    const perProbeTimeoutMs = (isLongRunningMeasurement ? 1_200 : 700) * Math.max(limit, 1);
     return Math.max(baseTimeoutMs, perProbeTimeoutMs);
   }
 
@@ -162,7 +164,7 @@ export function useMeasurement() {
 
     const nextOrder = new Set(nextKeys);
     const carryForwardEntries =
-      next.status === "in-progress"
+      next.status === MeasurementStatus.IN_PROGRESS
         ? previous.results
             .map((result, index) => ({ key: previousKeys[index], result }))
             .filter(({ key }) => !nextOrder.has(key))
@@ -222,12 +224,12 @@ export function useMeasurement() {
       isFetchingRef.current = true;
       try {
         const requestSignal = AbortSignal.any([controller.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
-        const result = await getMeasurement(activeMeasurementId, requestSignal);
+        const result = await getMeasurement(authToken, activeMeasurementId, requestSignal);
         if (controller.signal.aborted || activeRunToken !== runTokenRef.current) {
           return;
         }
         setMeasurement((previous) => mergeMeasurementResults(previous, result));
-        if (result.status !== "in-progress") {
+        if (result.status !== MeasurementStatus.IN_PROGRESS) {
           stopPolling();
           if (toastRef.current && activeRunToken === runTokenRef.current) {
             toastRef.current.style = Toast.Style.Success;
@@ -267,7 +269,7 @@ export function useMeasurement() {
       abortControllerRef.current = null;
       isFetchingRef.current = false;
     };
-  }, [measurementId, measurement?.type, probeLimit]);
+  }, [authToken, measurementId, measurement?.type, probeLimit]);
 
   // Run test
 
@@ -276,7 +278,6 @@ export function useMeasurement() {
     const activeRunToken = runTokenRef.current;
     stopPolling();
     stopCreateRequest();
-    isCreatingRef.current = true;
 
     setIsRunning(true);
     setMeasurement(null);
@@ -294,7 +295,7 @@ export function useMeasurement() {
       controller = new AbortController();
       createAbortControllerRef.current = controller;
       const requestSignal = AbortSignal.any([controller.signal, AbortSignal.timeout(12_000)]);
-      const id = await createMeasurement(payload, requestSignal);
+      const id = await createMeasurement(authToken, payload, requestSignal);
       if (activeRunToken !== runTokenRef.current) {
         return;
       }
@@ -304,14 +305,14 @@ export function useMeasurement() {
       setMeasurement({
         id,
         type: payload.type,
-        status: "in-progress",
+        status: MeasurementStatus.IN_PROGRESS,
         target: payload.target,
         results: [],
         resultKeys: [],
       });
       setMeasurementId(id);
-      const firstLocation = payload.locations[0];
-      if (firstLocation?.magic) {
+      const firstLocation = Array.isArray(payload.locations) ? payload.locations[0] : undefined;
+      if (firstLocation && typeof firstLocation !== "string" && firstLocation.magic) {
         void incrementLocationStat(firstLocation.magic);
       }
     } catch (e) {
@@ -332,10 +333,6 @@ export function useMeasurement() {
         toastRef.current.message = message;
       }
       return;
-    } finally {
-      if (activeRunToken === runTokenRef.current) {
-        isCreatingRef.current = false;
-      }
     }
   }
 

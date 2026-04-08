@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { Action, ActionPanel, Color, Icon, Keyboard, LaunchProps, List, showToast, Toast } from "@raycast/api";
-import { getProbeResultKeys, getShareUrl, type ProbeResult, type PingResult } from "./api/globalping";
+import { getAccessToken, withAccessToken } from "@raycast/utils";
+import { MeasurementType, getProbeResultKeys, getShareUrl, type ProbeResult, type PingResult } from "./api/globalping";
+import { globalpingOAuth } from "./oauth";
+import { EditLocationAction } from "./components/LocationPicker";
+import { useRecentLocations } from "./hooks/useLocationDirectory";
 import {
   getProbeFlagIcon,
   formatProbeLabel,
@@ -11,8 +15,7 @@ import {
 } from "./utils/formatters";
 import { getProbeLimitPreference } from "./utils/preferences";
 import { createPingQuicklink } from "./utils/quicklinks";
-import { getRefreshActionHint } from "./utils/shortcuts";
-import { useLocations } from "./hooks/useLocations";
+import { getCurrentLocationHint, getRefreshActionHint } from "./utils/shortcuts";
 import { useMeasurement } from "./hooks/useMeasurement";
 
 interface Arguments {
@@ -164,20 +167,36 @@ function ProbeDetail({ probeResult }: { probeResult: ProbeResult }) {
 
 // Main command
 
-export default function Command(props: LaunchProps<{ arguments: Arguments }>) {
-  return <PingCommand initialTarget={props.arguments.target ?? ""} initialFrom={props.arguments.from?.trim() || ""} />;
+function Command(props: LaunchProps<{ arguments: Arguments }>) {
+  const { token } = getAccessToken();
+
+  return (
+    <PingCommand
+      authToken={token}
+      initialTarget={props.arguments.target ?? ""}
+      initialFrom={props.arguments.from?.trim() || ""}
+    />
+  );
 }
 
 /**
  * Main Raycast command for running Globalping ping measurements.
  */
-function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?: string; initialFrom?: string }) {
+function PingCommand({
+  authToken,
+  initialTarget = "",
+  initialFrom = "",
+}: {
+  authToken: string;
+  initialTarget?: string;
+  initialFrom?: string;
+}) {
   const [target, setTarget] = useState(initialTarget);
   const [from, setFrom] = useState(initialFrom);
   const [submittedRequest, setSubmittedRequest] = useState<SubmittedPingRequest | null>(null);
   const defaultProbeLimit = getProbeLimitPreference();
-  const { locationSections, preferredLocation, isLoading: isLocationsLoading } = useLocations();
-  const { measurement, isRunning, runTest, probeLimit } = useMeasurement();
+  const { recentLocations, preferredLocation, isLoading: isLocationsLoading } = useRecentLocations();
+  const { measurement, isRunning, runTest, probeLimit } = useMeasurement(authToken);
   const selectedFrom = from || preferredLocation || "world";
   const hasAutoRunRef = useRef(false);
 
@@ -209,7 +228,7 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
     setSubmittedRequest({ target: trimmedTarget, from: f });
     await runTest(
       {
-        type: "ping",
+        type: MeasurementType.PING,
         target: trimmedTarget,
         locations: [{ magic: f }],
         limit: defaultProbeLimit,
@@ -252,6 +271,12 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
             shortcut={Keyboard.Shortcut.Common.Refresh}
             onAction={() => handleRun(target, selectedFrom)}
           />
+          <EditLocationAction
+            authToken={authToken}
+            currentValue={selectedFrom}
+            recentLocations={recentLocations}
+            onSelect={setFrom}
+          />
         </ActionPanel.Section>
         {measurement && (
           <ActionPanel.Section>
@@ -283,27 +308,18 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
 
   return (
     <List
+      navigationTitle={`Ping from ${selectedFrom}`}
       isShowingDetail={hasItems}
       isLoading={isRunning}
       searchBarPlaceholder="Target (e.g. google.com)"
       searchText={target}
       onSearchTextChange={setTarget}
-      searchBarAccessory={
-        <List.Dropdown tooltip="From" value={selectedFrom} onChange={setFrom}>
-          {locationSections.map((section) => (
-            <List.Dropdown.Section key={section.title} title={section.title}>
-              {section.items.map((item) => (
-                <List.Dropdown.Item key={item.value} title={item.title} value={item.value} />
-              ))}
-            </List.Dropdown.Section>
-          ))}
-        </List.Dropdown>
-      }
       actions={actions}
     >
       {!hasItems && (
         <List.EmptyView
           title={target ? getRefreshActionHint(`ping ${target}`) : "Enter a target to get started"}
+          description={getCurrentLocationHint(selectedFrom)}
           icon={Icon.Network}
         />
       )}
@@ -359,3 +375,5 @@ function PingCommand({ initialTarget = "", initialFrom = "" }: { initialTarget?:
     </List>
   );
 }
+
+export default withAccessToken(globalpingOAuth)(Command);
