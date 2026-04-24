@@ -11,7 +11,7 @@ const globalpingOAuthClient = new OAuth.PKCEClient({
   providerName: "Globalping",
   providerIcon: "globalping.png",
   providerId: "globalping",
-  description: "Connect your Globalping account to unlock higher limits automatically.",
+  description: "Connect your Globalping account to get started.",
 });
 
 export const globalpingOAuth = new OAuthService({
