@@ -1,4 +1,5 @@
 import { LocalStorage } from "@raycast/api";
+import { sanitizeText } from "./text";
 
 export interface LocationStat {
   location: string;
@@ -8,27 +9,6 @@ export interface LocationStat {
 
 const LOCATION_STATS_KEY = "locationStats";
 let locationStatsWriteQueue: Promise<void> = Promise.resolve();
-
-/**
- * Removes invisible/control characters from stored location values.
- */
-function sanitizeLocation(value: string): string {
-  return Array.from(value)
-    .filter((char) => {
-      const codePoint = char.codePointAt(0) ?? 0;
-
-      return !(
-        codePoint <= 0x1f ||
-        codePoint === 0x7f ||
-        codePoint === 0x200b ||
-        codePoint === 0x200c ||
-        codePoint === 0x200d ||
-        codePoint === 0x2060
-      );
-    })
-    .join("")
-    .trim();
-}
 
 /**
  * Loads, validates, and de-duplicates persisted location usage stats.
@@ -56,7 +36,7 @@ export async function getLocationStats(): Promise<LocationStat[]> {
       continue;
     }
 
-    const location = sanitizeLocation(entry.location);
+    const location = sanitizeText(entry.location);
     if (!location) {
       continue;
     }
@@ -84,7 +64,7 @@ export async function getLocationStats(): Promise<LocationStat[]> {
  * Increments usage stats for a location while serializing writes to avoid lost updates.
  */
 export async function incrementLocationStat(location: string): Promise<void> {
-  const sanitizedLocation = sanitizeLocation(location);
+  const sanitizedLocation = sanitizeText(location);
   if (!sanitizedLocation) {
     return;
   }

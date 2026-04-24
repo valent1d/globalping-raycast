@@ -216,6 +216,11 @@ function DnsCommand({
   const { measurement, isRunning, runTest, probeLimit } = useMeasurement(authToken);
   const selectedFrom = from || preferredLocation || "world";
   const hasAutoRunRef = useRef(false);
+  const hasMountedRef = useRef(false);
+
+  useEffect(() => {
+    hasMountedRef.current = true;
+  }, []);
 
   // Auto-run when both arguments are provided
 
@@ -398,12 +403,17 @@ function DnsCommand({
       searchBarPlaceholder="Hostname (e.g. google.com)"
       searchText={target}
       onSearchTextChange={setTarget}
-      onSelectionChange={setSelectedItemId}
+      onSelectionChange={(id) => {
+        if (hasMountedRef.current) setSelectedItemId(id);
+      }}
       searchBarAccessory={
         <List.Dropdown
           tooltip="DNS Record Type"
           value={queryType}
-          onChange={(value) => void applyQueryType(value as SupportedDnsQueryType)}
+          onChange={(value) => {
+            if (!hasMountedRef.current || value === queryType) return;
+            void applyQueryType(value as SupportedDnsQueryType);
+          }}
         >
           {SUPPORTED_DNS_QUERY_TYPES.map((supportedType) => (
             <List.Dropdown.Item key={supportedType} title={supportedType} value={supportedType} />

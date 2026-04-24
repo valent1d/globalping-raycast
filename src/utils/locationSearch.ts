@@ -1,8 +1,13 @@
 import type { Probe } from "../api/globalping";
 import type { LocationStat } from "./storage";
+import { sanitizeText as sanitizeLocationText } from "./text";
 import continents from "../assets/json/continents.json";
 import countries from "../assets/json/countries.json";
 import states from "../assets/json/usa-states.json";
+import countryIso3 from "../assets/json/country-iso3.json";
+import countryAliasesData from "../assets/json/country-aliases.json";
+import regionAliasesData from "../assets/json/region-aliases.json";
+import networkAliasesData from "../assets/json/network-aliases.json";
 
 interface NamedCode {
   code: string;
@@ -23,6 +28,39 @@ for (const entry of continents as NamedCode[]) {
 
 for (const entry of states as NamedCode[]) {
   statesByCode.set(`US-${entry.code.toUpperCase()}`, entry.name);
+}
+
+const iso3ByCode = countryIso3 as Record<string, string>;
+
+function getCountryIso3(iso2: string): string | undefined {
+  return iso3ByCode[iso2.toUpperCase()];
+}
+
+function getFullCountryAliases(iso2: string): string[] {
+  const key = iso2.toLowerCase();
+  const group = (countryAliasesData as string[][]).find((arr) => arr[0] === key);
+  return group ? group.slice(1) : [];
+}
+
+function getNetworkPrefixes(network: string): string[] {
+  const words = network.split(" ");
+  const prefixes: string[] = [];
+  for (let i = words.length; i > 0; i--) {
+    prefixes.push(words.slice(0, i).join(" "));
+  }
+  return prefixes;
+}
+
+function getNetworkAliases(network: string): string[] {
+  const key = network.toLowerCase();
+  const group = (networkAliasesData as string[][]).find((arr) => arr.includes(key));
+  return group ? group.filter((v) => v !== key) : [];
+}
+
+function getRegionAliases(region: string): string[] {
+  const key = region.toLowerCase();
+  const group = (regionAliasesData as string[][]).find((arr) => arr.includes(key));
+  return group ? group.filter((v) => v !== key) : [];
 }
 
 export interface LocationSuggestion {
@@ -49,7 +87,6 @@ interface ParsedQuery {
 }
 
 export interface NormalizedLocationProbe {
-  allValues: string;
   city: string;
   state: string;
   region: string;
@@ -57,6 +94,8 @@ export interface NormalizedLocationProbe {
   continent: string;
   network: string;
   tags: string[];
+  /** 16-category index aligned with the Globalping server filtering logic */
+  categories: string[][];
 }
 
 interface SuggestionCandidate {
@@ -81,24 +120,6 @@ const SECTION_PRIORITY = new Map<string, number>([
   ["Recent", 8],
 ]);
 
-function sanitizeLocationText(value: string): string {
-  return Array.from(value)
-    .filter((char) => {
-      const codePoint = char.codePointAt(0) ?? 0;
-
-      return !(
-        codePoint <= 0x1f ||
-        codePoint === 0x7f ||
-        codePoint === 0x200b ||
-        codePoint === 0x200c ||
-        codePoint === 0x200d ||
-        codePoint === 0x2060
-      );
-    })
-    .join("")
-    .trim();
-}
-
 function escapeRegExp(value: string): string {
   return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
@@ -113,15 +134,6 @@ function getContinentName(code: string): string {
 
 function getStateName(code: string): string {
   return statesByCode.get(code.toUpperCase()) ?? code.toUpperCase();
-}
-
-function getCountryAliases(code: string): string[] {
-  switch (code.toUpperCase()) {
-    case "GB":
-      return ["UK", "Great Britain", "England"];
-    default:
-      return [];
-  }
 }
 
 function parseLocationQuery(value: string): ParsedQuery {
@@ -169,10 +181,43 @@ export function normalizeLocationProbes(probes: Probe[]): NormalizedLocationProb
       .map((tag) => sanitizeLocationText(tag))
       .filter((tag) => tag && !tag.startsWith("u-"));
 
-    const countryValues = [countryName, countryCode, ...getCountryAliases(countryCode)];
+    // Full country aliases (used both in countryValues and in the index)
+    const fullCountryAliases = getFullCountryAliases(countryCode);
+    const countryValues = [countryName, countryCode, ...fullCountryAliases];
     const stateValues = normalizedStateCode ? [normalizedStateCode, getStateName(normalizedStateCode), stateCode] : [];
     const cityValues = [city, ...stateValues, countryName, countryCode];
     const continentValues = [continentName, continentCode];
+
+    // Normalise a value for the index: lowercase + hyphens → spaces (matches server behavior)
+    const norm = (v: string) => v.toLowerCase().replaceAll("-", " ");
+
+    const countryIso3Value = getCountryIso3(countryCode);
+    const normalizedNetwork = norm(network);
+    const netPrefixes = network ? getNetworkPrefixes(normalizedNetwork) : [];
+    const netAliases = network ? getNetworkAliases(normalizedNetwork) : [];
+    const normalizedRegion = norm(region);
+    const regAliases = region ? getRegionAliases(normalizedRegion) : [];
+    const asn = probe.location.asn ? `as${probe.location.asn}` : "";
+
+    // 16-category index (positions mirror the server's ProbeIndex)
+    const categories: string[][] = [
+      /* 00 */ countryCode ? [norm(countryCode)] : [],
+      /* 01 */ countryIso3Value ? [norm(countryIso3Value)] : [],
+      /* 02 */ countryName ? [norm(countryName)] : [],
+      /* 03 */ fullCountryAliases.map(norm),
+      /* 04 */ city ? [norm(city)] : [],
+      /* 05 */ stateCode ? [norm(stateCode)] : [],
+      /* 06 */ normalizedStateCode ? [norm(normalizedStateCode)] : [],
+      /* 07 */ normalizedStateCode ? [norm(getStateName(normalizedStateCode))] : [],
+      /* 08 */ continentCode ? [norm(continentCode)] : [],
+      /* 09 */ continentName ? [norm(continentName)] : [],
+      /* 10 */ region ? [normalizedRegion] : [],
+      /* 11 */ regAliases,
+      /* 12 */ asn ? [asn] : [],
+      /* 13 */ tags.map(norm),
+      /* 14 */ netPrefixes,
+      /* 15 */ netAliases,
+    ];
 
     return {
       city: cityValues.filter(Boolean).join("\n"),
@@ -182,47 +227,51 @@ export function normalizeLocationProbes(probes: Probe[]): NormalizedLocationProb
       continent: continentValues.filter(Boolean).join("\n"),
       network,
       tags,
-      allValues: [...cityValues, region, ...countryValues, ...continentValues, network, ...tags]
-        .filter(Boolean)
-        .join("\n")
-        .toLowerCase(),
+      categories,
     };
   });
+}
+
+// Builds one Set per category, containing all known values across all probes.
+// Used to determine whether a keyword maps exactly to a known category (for precise filtering).
+function buildCategoryIndex(probes: NormalizedLocationProbe[]): Set<string>[] {
+  const sets: Set<string>[] = Array.from({ length: 16 }, () => new Set<string>());
+  for (const probe of probes) {
+    for (let i = 0; i < 16; i++) {
+      for (const v of probe.categories[i] ?? []) {
+        sets[i]!.add(v);
+      }
+    }
+  }
+  return sets;
+}
+
+function findExactCategory(keyword: string, index: Set<string>[]): number {
+  // ASN: special regex match for category 12
+  if (/^as\d+$/.test(keyword)) return 12;
+  return index.findIndex((set) => set.has(keyword));
 }
 
 function filterProbes(
   normalizedProbes: NormalizedLocationProbe[],
   conditions: string[],
+  categoryIndex: Set<string>[],
 ): NormalizedLocationProbe[] {
-  return conditions.reduce((filteredProbes, condition) => {
-    const normalizedCondition = sanitizeLocationText(condition).toLowerCase();
-    if (!normalizedCondition || normalizedCondition === "world") {
-      return filteredProbes;
+  if (conditions.length === 0) return normalizedProbes;
+
+  return conditions.reduce((filtered, condition) => {
+    const keyword = sanitizeLocationText(condition).toLowerCase().replaceAll("-", " ");
+    if (!keyword || keyword === "world") return filtered;
+
+    const exactCategory = findExactCategory(keyword, categoryIndex);
+
+    if (exactCategory !== -1) {
+      // Exact match found → filter on that specific category only
+      return filtered.filter((probe) => probe.categories[exactCategory]?.includes(keyword));
     }
 
-    const exactPattern = new RegExp(`(?:^|\\n)${escapeRegExp(normalizedCondition)}(?:$|\\n)`, "m");
-    let exactMatchFound = false;
-    let looseMatchFound = false;
-
-    let nextProbes = filteredProbes.filter((probe) => {
-      if (!probe.allValues.includes(normalizedCondition)) {
-        return false;
-      }
-
-      if (exactPattern.test(probe.allValues)) {
-        exactMatchFound = true;
-      } else {
-        looseMatchFound = true;
-      }
-
-      return true;
-    });
-
-    if (exactMatchFound && looseMatchFound) {
-      nextProbes = nextProbes.filter((probe) => exactPattern.test(probe.allValues));
-    }
-
-    return nextProbes;
+    // No exact category → partial match across all categories
+    return filtered.filter((probe) => probe.categories.some((cat) => cat.some((v) => v.includes(keyword))));
   }, normalizedProbes);
 }
 
@@ -230,7 +279,8 @@ function countByValue(values: SuggestionCandidate[]): SuggestionCandidate[] {
   const byValue = new Map<string, SuggestionCandidate>();
 
   for (const item of values) {
-    const key = item.section === "networks" ? item.value.toLowerCase() : item.value;
+    // Networks are deduped case-insensitively (ISPs can appear with varied casing)
+    const key = item.section === "Networks" ? item.value.toLowerCase() : item.value;
     const existing = byValue.get(key);
 
     if (existing) {
@@ -326,7 +376,7 @@ function buildSuggestionIndex(filteredProbes: NormalizedLocationProbe[]): Locati
         subtitle: countryCode ? `Country · code ${countryCode}` : "Country",
         count: 1,
         normalizedValue: probe.country.toLowerCase(),
-        inputValues: [countryName, countryCode, ...getCountryAliases(countryCode ?? "")].filter(Boolean),
+        inputValues: [countryName, countryCode, ...getFullCountryAliases(countryCode ?? "")].filter(Boolean),
       };
     }),
   );
@@ -375,10 +425,20 @@ function buildSuggestionIndex(filteredProbes: NormalizedLocationProbe[]): Locati
       });
     }
 
-    const [city, cityStateCode, cityStateName, cityShortStateCode, countryName, countryCode] = probe.city.split("\n");
+    const cityParts = probe.city.split("\n");
+    const city = cityParts[0];
     if (!city) {
       continue;
     }
+
+    // US cities: [city, US-XX, StateName, XX, CountryName, CountryCode] (6 parts)
+    // Non-US cities: [city, CountryName, CountryCode] (3 parts)
+    const hasState = cityParts[1]?.startsWith("US-");
+    const cityStateCode = hasState ? cityParts[1] : undefined;
+    const cityStateName = hasState ? cityParts[2] : undefined;
+    const cityShortStateCode = hasState ? cityParts[3] : undefined;
+    const countryName = hasState ? cityParts[4] : cityParts[1];
+    const countryCode = hasState ? cityParts[5] : cityParts[2];
 
     const locationCode = cityStateCode || countryCode;
     const subtitle = cityStateCode
@@ -405,8 +465,9 @@ function buildSuggestionIndex(filteredProbes: NormalizedLocationProbe[]): Locati
         cityShortStateCode,
         countryName,
         countryCode,
-      ].filter(Boolean),
+      ].filter(Boolean) as string[],
     });
+
   }
 
   const states = countByValue(stateCandidates);
@@ -580,8 +641,9 @@ export function buildLocationSuggestionSectionsFromNormalized(
   recentLocations: LocationStat[],
   rawQuery: string,
 ): LocationSuggestionSection[] {
+  const categoryIndex = buildCategoryIndex(normalizedProbes);
   const parsedQuery = parseLocationQuery(rawQuery);
-  const filteredProbes = filterProbes(normalizedProbes, parsedQuery.previousConditions);
+  const filteredProbes = filterProbes(normalizedProbes, parsedQuery.previousConditions, categoryIndex);
   const baseSections = buildSuggestionIndex(filteredProbes);
   const allSuggestions = dedupeSuggestions(flattenSections(baseSections)).sort(sortByRelevance);
   const compositionMode =
@@ -618,14 +680,22 @@ export function buildLocationSuggestionSectionsFromNormalized(
   const queryForRanking = parsedQuery.currentFragment || parsedQuery.query;
   const rankedSuggestions = buildRankedSuggestions(allSuggestions, queryForRanking);
   const seen = new Set<string>();
-  const bestMatches = pickSuggestions(
+
+  // Geo matches (cities, countries, continents, regions, states) — shown first
+  const geoMatches = pickSuggestions(
     rankedSuggestions.filter((item) => item.section !== "Networks" && item.section !== "Tags"),
     6,
     seen,
   );
-  const filterIdeas = pickSuggestions(
-    rankedSuggestions.filter((item) => item.section === "Networks" || item.section === "Tags"),
-    compositionMode ? 6 : 3,
+  // Tags and Networks are shown in their own separate sections, like on globalping.io
+  const tagMatches = pickSuggestions(
+    rankedSuggestions.filter((item) => item.section === "Tags"),
+    compositionMode ? 10 : 5,
+    seen,
+  );
+  const networkMatches = pickSuggestions(
+    rankedSuggestions.filter((item) => item.section === "Networks"),
+    compositionMode ? 10 : 6,
     seen,
   );
   const moreSuggestions = pickSuggestions(rankedSuggestions, compositionMode ? 6 : 4, seen);
@@ -633,18 +703,11 @@ export function buildLocationSuggestionSectionsFromNormalized(
   return [
     ...(rawInputSection ? [rawInputSection] : []),
     ...buildRecentSection(recentLocations, queryForRanking),
-    ...buildSection(compositionMode ? "Add to Current Filter" : "Best Matches", bestMatches),
-    ...buildSection(compositionMode ? "More Filter Ideas" : "Filter Ideas", filterIdeas),
+    ...buildSection(compositionMode ? "Add to Current Filter" : "Best Matches", geoMatches),
+    ...buildSection("Tags", tagMatches),
+    ...buildSection("Networks", networkMatches),
     ...buildSection("More Suggestions", moreSuggestions),
   ];
-}
-
-export function buildLocationSuggestionSections(
-  probes: Probe[],
-  recentLocations: LocationStat[],
-  rawQuery: string,
-): LocationSuggestionSection[] {
-  return buildLocationSuggestionSectionsFromNormalized(normalizeLocationProbes(probes), recentLocations, rawQuery);
 }
 
 export function applyLocationSuggestion(rawQuery: string, suggestion: LocationSuggestion): string {

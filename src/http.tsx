@@ -163,6 +163,11 @@ function HttpCommand({
   const { measurement, isRunning, runTest, probeLimit } = useMeasurement(authToken);
   const selectedFrom = from || preferredLocation || "world";
   const hasAutoRunRef = useRef(false);
+  const hasMountedRef = useRef(false);
+
+  useEffect(() => {
+    hasMountedRef.current = true;
+  }, []);
 
   // Auto-run when both arguments are provided
 
@@ -311,7 +316,10 @@ function HttpCommand({
         <List.Dropdown
           tooltip="HTTP Method"
           value={method}
-          onChange={(value) => void applyHttpMethod(value as SupportedHttpMethod)}
+          onChange={(value) => {
+            if (!hasMountedRef.current || value === method) return;
+            void applyHttpMethod(value as SupportedHttpMethod);
+          }}
         >
           <List.Dropdown.Item title={HttpRequestMethod.HEAD} value={HttpRequestMethod.HEAD} />
           <List.Dropdown.Item title={HttpRequestMethod.GET} value={HttpRequestMethod.GET} />
