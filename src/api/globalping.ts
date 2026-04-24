@@ -164,7 +164,7 @@ export type MeasurementPayload = TypedMeasurementRequest;
 // Client
 
 const DEFAULT_TIMEOUT_MS = 30_000;
-const USER_AGENT = "globalping-raycast";
+const USER_AGENT = "globalping-raycast (https://github.com/jsdelivr/globalping-raycast)";
 
 /**
  * Builds a configured Globalping API client using the current authenticated Raycast session.
